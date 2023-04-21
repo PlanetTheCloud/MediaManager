@@ -23,6 +23,10 @@ The `loader.php` is the main logic file where all the processing happens. At the
 └── loader.php
 ```
 
+## Dependencies
+- Bootstrap - v5.3.0-alpha3
+- VideoJS - v4.0.1
+
 ## Supported Formats
 The following extension are supported:
 - .webm

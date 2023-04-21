@@ -7,6 +7,10 @@
  */
 include 'loader.php';
 
+// For URI handling
+$seed_uri = (isset($_GET['random'])) ? "random&seed={$metadata['seed']}&" : '';
+$folder_uri = (isset($_GET['folder'])) ? "folder={$_GET['folder']}&" : '';
+
 ?>
 <!doctype html>
 <html lang="en" data-bs-theme="dark">
@@ -39,7 +43,7 @@ include 'loader.php';
                     <li>
                         <hr class="dropdown-divider">
                     </li>
-                    <li><a class="dropdown-item" href="?random">Randomize!</a></li>
+                    <li><a class="dropdown-item" href="?<?= $folder_uri ?>random">Randomize!</a></li>
                 </ul>
             </div>
             <div class="d-flex align-items-center">
@@ -76,10 +80,8 @@ include 'loader.php';
             <div class="col-12">
                 <nav class="nav d-flex justify-content-center">
                     <ul class="pagination flex-wrap">
-                        <?php $seed = (isset($_GET['random'])) ? "random&seed={$metadata['seed']}&" : ''; ?>
-                        <?php $folder = (isset($_GET['folder'])) ? "folder={$_GET['folder']}&" : ''; ?>
                         <?php for ($i = 1; $i <= $metadata['page_count']; $i++) { ?>
-                            <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed ?><?= $folder ?>page=<?= $i ?>"><?= $i ?></a></li>
+                            <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed_uri ?><?= $folder_uri ?>page=<?= $i ?>"><?= $i ?></a></li>
                         <?php } ?>
                     </ul>
                 </nav>

@@ -73,15 +73,17 @@ include 'loader.php';
             <?php } ?>
         </div>
         <div class="row mt-2">
-            <nav class="nav d-flex justify-content-center">
-                <ul class="pagination flex-wrap">
-                    <?php $seed = (isset($_GET['random'])) ? "random&seed={$metadata['seed']}&" : ''; ?>
-                    <?php $folder = (isset($_GET['folder'])) ? "folder={$_GET['folder']}&" : ''; ?>
-                    <?php for ($i = 1; $i <= $metadata['page_count']; $i++) { ?>
-                        <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed ?><?= $folder ?>page=<?= $i ?>"><?= $i ?></a></li>
-                    <?php } ?>
-                </ul>
-            </nav>
+            <div class="col-12">
+                <nav class="nav d-flex justify-content-center">
+                    <ul class="pagination flex-wrap">
+                        <?php $seed = (isset($_GET['random'])) ? "random&seed={$metadata['seed']}&" : ''; ?>
+                        <?php $folder = (isset($_GET['folder'])) ? "folder={$_GET['folder']}&" : ''; ?>
+                        <?php for ($i = 1; $i <= $metadata['page_count']; $i++) { ?>
+                            <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed ?><?= $folder ?>page=<?= $i ?>"><?= $i ?></a></li>
+                        <?php } ?>
+                    </ul>
+                </nav>
+            </div>
         </div>
     </div>
     <script src="assets/bootstrap.bundle.min.js"></script>

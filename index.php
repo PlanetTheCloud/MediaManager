@@ -73,8 +73,8 @@ include 'loader.php';
             <?php } ?>
         </div>
         <div class="row mt-2">
-            <nav>
-                <ul class="pagination">
+            <nav class="nav d-flex justify-content-center">
+                <ul class="pagination flex-wrap">
                     <?php $seed = (isset($_GET['random'])) ? "random&seed={$metadata['seed']}&" : ''; ?>
                     <?php for ($i = 1; $i <= $metadata['page_count']; $i++) { ?>
                         <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed ?>page=<?= $i ?>"><?= $i ?></a></li>

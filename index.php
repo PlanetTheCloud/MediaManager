@@ -76,8 +76,9 @@ include 'loader.php';
             <nav class="nav d-flex justify-content-center">
                 <ul class="pagination flex-wrap">
                     <?php $seed = (isset($_GET['random'])) ? "random&seed={$metadata['seed']}&" : ''; ?>
+                    <?php $folder = (isset($_GET['folder'])) ? "folder={$_GET['folder']}&" : ''; ?>
                     <?php for ($i = 1; $i <= $metadata['page_count']; $i++) { ?>
-                        <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed ?>page=<?= $i ?>"><?= $i ?></a></li>
+                        <li class="page-item <?= ((int) @$metadata['current_page'] === $i) ? 'active' : null ?>"><a class="page-link" href="?<?= $seed ?><?= $folder ?>page=<?= $i ?>"><?= $i ?></a></li>
                     <?php } ?>
                 </ul>
             </nav>

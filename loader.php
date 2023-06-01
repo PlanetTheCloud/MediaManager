@@ -59,6 +59,22 @@ function seeded_shuffle(array $items, $seed = false)
 }
 
 /**
+ * Sort the files by time
+ * 
+ * @param array $items The array to be sorted
+ * @param bool $direction Perform asc or desc sort
+ * @return array
+ */
+function sort_by_time($items, $direction = SORT_ASC)
+{
+    foreach ($items as $file) {
+        $timestamps[$file] = filemtime($file);
+    }
+    array_multisort($timestamps, $direction, $items);
+    return $items;
+}
+
+/**
  * Search an array
  * 
  * @param string $needle
@@ -130,11 +146,18 @@ if (isset($_GET['random'])) {
         echo "Redirecting you to $location";
         die;
     } else if ($_GET['seed'] !== @$_SESSION['seed']) {
+        if (!is_int($_GET['seed'])) {
+            die('400 Bad Request');
+        }
         $_SESSION['seed'] = $_GET['seed'];
         $_SESSION['files'] = seeded_shuffle($files, $_SESSION['seed']);
     }
-    $files = $_SESSION['files'];
+} else if (isset($_GET['newest'])) {
+    $_SESSION['files'] = sort_by_time($files, SORT_DESC);
+} else if (isset($_GET['oldest'])) {
+    $_SESSION['files'] = sort_by_time($files, SORT_ASC);
 }
+$files = $_SESSION['files'] ?? $files;
 
 // Perform query
 if (isset($_GET['query'])) {

@@ -146,7 +146,7 @@ if (isset($_GET['random'])) {
         echo "Redirecting you to $location";
         die;
     } else if ($_GET['seed'] !== @$_SESSION['seed']) {
-        if (!is_int($_GET['seed'])) {
+        if (!is_numeric($_GET['seed'])) {
             die('400 Bad Request');
         }
         $_SESSION['seed'] = $_GET['seed'];

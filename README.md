@@ -17,6 +17,20 @@ Open `http://127.0.0.1:8000/`. The router serves the gallery, bundled assets, an
 
 For a private library, keep the media folder and a dedicated, unsynced browser profile on the same encrypted volume. Use the server command above to keep SQLite and its sidecars out of HTTP responses. To lock the library, close the browser profile, stop the server, and lock or dismount the volume.
 
+## Single-file build
+
+From the repository root, run `php build.php` to generate `MediaManager.php`. Copy the generated file beside your media. The destination needs PHP 8.1 or newer with `pdo_sqlite` enabled. Bootstrap and Video.js are embedded in the file.
+
+From the directory containing your copy of `MediaManager.php`, launch the gallery with an empty document root outside the media library. In PowerShell, create the directory once and reuse it as long as it stays empty:
+
+```powershell
+$webRoot = Join-Path $env:TEMP 'MediaManager-webroot'
+New-Item -ItemType Directory -Path $webRoot
+php -S 127.0.0.1:8000 -t "$webRoot" MediaManager.php
+```
+
+Open `http://127.0.0.1:8000/`. By default, the bundle browses the directory containing `MediaManager.php`. Set `MEDIA_LIBRARY_DIR` before starting the server to use a different directory. Metadata stays in `mediamanager.sqlite` in the selected library. The bundle treats a library folder named `assets` like any other media folder.
+
 ## Configuration
 The `loader.php` is the main logic file where all the processing happens. At the top you can modify the following settings:
 - `ITEMS_PER_PAGE`: Controls how many files to show per page.  
@@ -29,6 +43,7 @@ The `loader.php` is the main logic file where all the processing happens. At the
 │   ├── bootstrap.min.css
 │   ├── video-js.css
 │   └── video.min.js
+├── build.php
 ├── index.php
 ├── loader.php
 ├── metadata.php

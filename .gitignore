@@ -3,3 +3,5 @@
 *.gif
 *.mkv
 *.m4v
+mediamanager.sqlite
+mediamanager.sqlite-*

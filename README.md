@@ -5,7 +5,17 @@ If you have a lot of video files and would like to view it from the browser in g
 This is mostly a PoC and can be implemented in other languages of your liking.  
 
 ## Setup
-Just drop the files into the folder you want to view and manage, then start a PHP server.  
+
+Use PHP 8.1 or newer with the `pdo_sqlite` extension enabled. From the repository root, set `MEDIA_LIBRARY_DIR` to the folder holding your media and launch the local server. In PowerShell:
+
+```powershell
+$env:MEDIA_LIBRARY_DIR = 'E:\My Media'
+php -S 127.0.0.1:8000 -t assets router.php
+```
+
+Open `http://127.0.0.1:8000/`. The router serves the gallery, bundled assets, and media. The `-t assets` argument keeps the media directory outside the server's static document root. If `MEDIA_LIBRARY_DIR` is unset, the gallery uses the repository directory.
+
+For a private library, keep the media folder and a dedicated, unsynced browser profile on the same encrypted volume. Use the server command above to keep SQLite and its sidecars out of HTTP responses. To lock the library, close the browser profile, stop the server, and lock or dismount the volume.
 
 ## Configuration
 The `loader.php` is the main logic file where all the processing happens. At the top you can modify the following settings:
@@ -20,7 +30,9 @@ The `loader.php` is the main logic file where all the processing happens. At the
 │   ├── video-js.css
 │   └── video.min.js
 ├── index.php
-└── loader.php
+├── loader.php
+├── metadata.php
+└── router.php
 ```
 
 ## Dependencies
@@ -39,7 +51,20 @@ Easily add more by modifying `gatherMediaFiles()` in `loader.php`.
 **Note**: Compability dependent on [VideoJS](https://videojs.com/).  
 
 ## Search Feature
-Search using keywords separated by space. It will be evaluated recursively. Use a minus sign (`-`) to exclude files with said keyword.
+
+Search filenames and paths recursively using space-separated terms. Prefix a term with `-` to exclude matches. You can combine that search with a tag, a star rating, and the Favorites view.
+
+## Favorites, ratings, and tags
+
+Open **Edit details** on a card. Check **Favorite**, choose a rating from one to five stars or **Unrated**, and enter one tag per line. Tags can use a namespace such as `subject:train`. Click **Save** to apply the edits. Clicking a tag on a card filters the gallery by that tag.
+
+The first edit creates `mediamanager.sqlite` directly in the media library directory. SQLite may create temporary journal sidecars next to it. The app stores edits against the file's path relative to that directory.
+
+## Move, rename, and mark for deletion
+
+Open **Manage file** on a card. Choose an existing destination folder or leave it blank for the library root. Edit the filename while keeping its extension, then click **Move or rename**. The app carries tags, stars, favorites, and the deletion mark to the new path. Moves and renames use hard links for collision-safe file placement, so use a filesystem that supports them, such as NTFS, and keep both paths on the same volume. Use the gallery to preserve details when changing a path.
+
+**Mark for deletion** records a reversible flag in SQLite and leaves the media file in place. Use the **Marked for deletion** filter to review flagged files, and **Clear deletion mark** to keep one. Existing databases are upgraded automatically when you make an edit. The database also stores the pending move record used to recover if the app is interrupted.
 
 ## Randomize Feature
-Click on "Ranzomize!" in the menu to randomize the result. A seed will be generated and attached to the URL, which can be used to consistently have the same sorted page.
+Choose **Sort → Randomize** to shuffle the gallery. The generated seed in the URL preserves the order for the same set of files.

@@ -23,8 +23,8 @@ function getMediaLibraryDirectory(): string
 {
     $configured = getenv('MEDIA_LIBRARY_DIR');
     $directory = realpath($configured === false ? __DIR__ : $configured);
-    if ($configured === '' || $directory === false || !is_dir($directory)) {
-        throw new RuntimeException('The media library is unavailable.');
+    if ($configured === '' || $directory === false || !is_dir($directory) || !is_readable($directory)) {
+        throw new MediaLibraryUnavailable('The media library is unavailable.');
     }
     if (isInPublicDocumentRoot($directory)) {
         throw new RuntimeException('The media library must be outside the public document root.');
@@ -302,7 +302,15 @@ function galleryFilters(array $input): array
     return $filters;
 }
 
-function loadMediaGallery(string $directory, array $filters): array
+function galleryMatchesAnnotations(array $item, array $filters): bool
+{
+    return (!isset($filters['favorites']) || $item['favorite'])
+        && (!isset($filters['marked']) || $item['marked_for_deletion'])
+        && (!isset($filters['rating']) || $item['rating'] === (int) $filters['rating'])
+        && (!isset($filters['tag']) || in_array(strtolower($filters['tag']), array_map('strtolower', $item['tags']), true));
+}
+
+function queryMediaGallery(string $directory, array $filters): array
 {
     $folder = resolveLibraryPath($directory, $filters['folder'] ?? '');
     if ($folder === null || !is_dir($folder)) {
@@ -312,7 +320,7 @@ function loadMediaGallery(string $directory, array $filters): array
     $paths = gatherMediaFiles($folder);
     sort($paths, SORT_STRING);
     if (isset($filters['random'])) {
-        $paths = seeded_shuffle($paths, (int) $filters['seed']);
+        $paths = seeded_shuffle($paths, (int) ($filters['seed'] ?? 0));
     } elseif (isset($filters['newest']) || isset($filters['oldest'])) {
         $paths = sort_by_time($paths, isset($filters['newest']) ? SORT_DESC : SORT_ASC);
     }
@@ -322,19 +330,57 @@ function loadMediaGallery(string $directory, array $filters): array
     $annotations = null;
     if (isset($filters['tag']) || isset($filters['favorites']) || isset($filters['rating']) || isset($filters['marked'])) {
         $annotations = getMediaMetadata($directory, array_values($files));
-        $files = array_filter($files, static function ($file) use ($annotations, $filters): bool {
-            $item = $annotations[$file] ?? null;
-            return $item !== null
-                && (!isset($filters['favorites']) || $item['favorite'])
-                && (!isset($filters['marked']) || $item['marked_for_deletion'])
-                && (!isset($filters['rating']) || $item['rating'] === (int) $filters['rating'])
-                && (!isset($filters['tag']) || in_array(strtolower($filters['tag']), array_map('strtolower', $item['tags']), true));
-        });
+        $files = array_values(array_filter($files, static fn ($file) => galleryMatchesAnnotations($annotations[$file] ?? EMPTY_MEDIA_METADATA, $filters)));
+    }
+    return [array_values($files), $annotations];
+}
+
+function galleryFingerprint(string $directory, array $filters, array $files): string
+{
+    unset($filters['page']);
+    return hash('sha256', serialize([$directory, $filters]) . "\0" . implode("\0", $files));
+}
+
+function nextGalleryCursor(string $fingerprint, array $files, int $offset): ?string
+{
+    $end = $offset + ITEMS_PER_PAGE;
+    return $end < count($files) ? $fingerprint . '.' . hash('sha256', $files[$end - 1]) : null;
+}
+
+function loadMediaBatch(string $directory, array $filters, string $cursor): array
+{
+    if (!preg_match('/\A([0-9a-f]{64})\.([0-9a-f]{64})\z/', $cursor, $parts)) {
+        throw new InvalidArgumentException('Invalid gallery cursor.');
+    }
+    [$files, $annotations] = queryMediaGallery($directory, $filters);
+    $fingerprint = galleryFingerprint($directory, $filters, $files);
+    if ($parts[1] !== $fingerprint) {
+        throw new DomainException('The results have changed. Refresh to see the current order.');
     }
 
+    $offset = null;
+    foreach ($files as $index => $file) {
+        if (hash('sha256', $file) === $parts[2]) {
+            $offset = $index + 1;
+            break;
+        }
+    }
+    if ($offset === null || $offset % ITEMS_PER_PAGE !== 0 || $offset >= count($files)) {
+        throw new InvalidArgumentException('Invalid gallery cursor.');
+    }
+    $batch = array_slice($files, $offset, ITEMS_PER_PAGE);
+    $annotations ??= getMediaMetadata($directory, $batch);
+    return [$batch, $annotations, intdiv($offset, ITEMS_PER_PAGE) + 1, nextGalleryCursor($fingerprint, $files, $offset)];
+}
+
+function loadMediaGallery(string $directory, array $filters): array
+{
+    [$files, $annotations] = queryMediaGallery($directory, $filters);
     $pageCount = (int) ceil(count($files) / ITEMS_PER_PAGE);
     $page = max(1, min((int) ($filters['page'] ?? 1), $pageCount));
-    $pageFiles = array_slice($files, ($page - 1) * ITEMS_PER_PAGE, ITEMS_PER_PAGE);
+    $offset = ($page - 1) * ITEMS_PER_PAGE;
+    $pageFiles = array_slice($files, $offset, ITEMS_PER_PAGE);
     $annotations ??= getMediaMetadata($directory, $pageFiles);
-    return [$pageFiles, gatherMediaFolders($directory), $page, $pageCount, $annotations, listMediaTags($directory)];
+    $cursor = nextGalleryCursor(galleryFingerprint($directory, $filters, $files), $files, $offset);
+    return [$pageFiles, gatherMediaFolders($directory), $page, $pageCount, $annotations, listMediaTags($directory), $cursor];
 }

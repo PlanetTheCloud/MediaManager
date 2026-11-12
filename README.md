@@ -19,7 +19,7 @@ For a private library, keep the media folder and a dedicated, unsynced browser p
 
 ## Single-file build
 
-From the repository root, run `php build.php` to generate `MediaManager.php`. Copy the generated file beside your media. The destination needs PHP 8.1 or newer with `pdo_sqlite` enabled. Bootstrap and Video.js are embedded in the file.
+From the repository root, run `php build.php` to generate `MediaManager.php`. Copy the generated file beside your media. The destination needs PHP 8.1 or newer with `pdo_sqlite` enabled. The styles and scripts are embedded in the file.
 
 From the directory containing your copy of `MediaManager.php`, launch the gallery with an empty document root outside the media library. In PowerShell, create the directory once and reuse it as long as it stays empty:
 
@@ -41,6 +41,8 @@ The `loader.php` is the main logic file where all the processing happens. At the
 ├── assets/
 │   ├── bootstrap.bundle.min.js
 │   ├── bootstrap.min.css
+│   ├── gallery.css
+│   ├── gallery.js
 │   ├── video-js.css
 │   └── video.min.js
 ├── build.php
@@ -62,12 +64,17 @@ The following extension are supported:
 - .mkv
 - .m4v
 
-Easily add more by modifying `gatherMediaFiles()` in `loader.php`.  
-**Note**: Compability dependent on [VideoJS](https://videojs.com/).  
+The `MEDIA_TYPES` map in `loader.php` controls file discovery. Playback depends on the browser's support for the container and codecs.
 
 ## Search Feature
 
 Search filenames and paths recursively using space-separated terms. Prefix a term with `-` to exclude matches. You can combine that search with a tag, a star rating, and the Favorites view.
+
+## Browsing and playback
+
+The grid loads more results as you scroll. Use **Load more** to request a batch manually or retry a failed load. Numbered pages are available with JavaScript disabled.
+
+Open a tile to view it and use **Fullscreen** to expand the viewer. Use the arrow keys to move between clips, **Space** to play or pause, **F** to favorite, **1–5** to rate, **0** to clear the rating, and **T** to edit tags. **Esc** closes the active editor or viewer. Closing the viewer returns you to the opening card.
 
 ## Favorites, ratings, and tags
 

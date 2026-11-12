@@ -1,0 +1,125 @@
+.gallery-tile {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    text-decoration: none;
+}
+
+.gallery-tile img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.gallery-play {
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    aspect-ratio: 1;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+}
+
+.gallery-tile:hover,
+.gallery-tile:focus-visible {
+    border-color: var(--bs-primary-text-emphasis);
+    color: var(--bs-primary-text-emphasis);
+}
+
+html {
+    scrollbar-gutter: stable;
+}
+
+html.viewer-open {
+    overflow: hidden;
+    scrollbar-gutter: auto;
+}
+
+#media-viewer {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+.viewer-layout {
+    display: grid;
+    grid-template-rows: auto minmax(7rem, 1fr) auto;
+    height: 100%;
+    overflow: auto;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+.viewer-toolbar,
+.viewer-details {
+    padding: .75rem clamp(.75rem, 3vw, 2rem);
+}
+
+.viewer-toolbar,
+.viewer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+}
+
+.viewer-toolbar {
+    justify-content: space-between;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.viewer-stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    overflow: hidden;
+    background: #0d0f12;
+}
+
+.viewer-stage video,
+.viewer-stage img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.viewer-stage [hidden] {
+    display: none;
+}
+
+.viewer-details {
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.viewer-details > :not(:first-child) {
+    margin-top: .5rem;
+}
+
+.viewer-details [aria-disabled="true"] {
+    opacity: .65;
+}
+
+.viewer-shortcuts {
+    color: var(--bs-secondary-color);
+}

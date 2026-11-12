@@ -52,8 +52,11 @@ try {
         $root = realpath($_SERVER['DOCUMENT_ROOT'] ?? '');
         $configured = getenv('MEDIA_LIBRARY_DIR');
         $library = $configured === '' ? false : realpath($configured === false ? __DIR__ : $configured);
-        if ($root === false || $library === false || @scandir($root) !== ['.', '..']) {
+        if ($root === false || @scandir($root) !== ['.', '..']) {
             return false;
+        }
+        if ($library === false || !is_dir($library)) {
+            stopRequest(503, 'The media library is unavailable.', 'library-unavailable');
         }
 
         $root = rtrim($root, '/\\') . DIRECTORY_SEPARATOR;
@@ -79,7 +82,7 @@ try {
     );
 
     $assetResponse = "echo match (\$route) {\n";
-    foreach (['bootstrap.min.css', 'video-js.css', 'bootstrap.bundle.min.js', 'video.min.js'] as $asset) {
+    foreach (['bootstrap.min.css', 'video-js.css', 'bootstrap.bundle.min.js', 'video.min.js', 'gallery.css', 'gallery.js'] as $asset) {
         $path = 'assets/' . $asset;
         $assetResponse .= '            ' . var_export('/' . $path, true) . ' => '
             . var_export(readBundleFile($path), true) . ",\n";

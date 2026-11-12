@@ -16,6 +16,116 @@ function galleryUrl(array $filters, array $changes = []): string
     return $parameters ? '/?' . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986) : '/';
 }
 
+function renderGalleryCards(array $files, array $annotations, array $filters): void
+{
+    $currentUrl = galleryUrl($filters);
+    ?>
+    <?php foreach ($files as $file) { ?>
+        <?php
+        $item = $annotations[$file] ?? EMPTY_MEDIA_METADATA;
+        $mediaUrl = '/media?file=' . rawurlencode($file);
+        $id = 'media-' . hash('sha256', $file);
+        $folder = dirname($file);
+        ?>
+        <div class="col-sm-6 col-lg-4" id="<?= $id ?>" data-file="<?= escapeHtml($file) ?>">
+            <article class="card h-100">
+                <div class="card-body">
+                    <p class="text-break mb-2"><?= escapeHtml($file) ?></p>
+                    <?php $isGif = mediaType($file) === 'image/gif'; ?>
+                    <a class="gallery-tile" href="<?= escapeHtml($mediaUrl) ?>" data-open-media="<?= $isGif ? 'image' : 'video' ?>" aria-label="Open <?= escapeHtml($file) ?>">
+                        <?php if ($isGif) { ?>
+                            <img loading="lazy" decoding="async" src="<?= escapeHtml($mediaUrl) ?>" alt="">
+                        <?php } else { ?>
+                            <span class="gallery-play" aria-hidden="true">▶</span>
+                        <?php } ?>
+                    </a>
+                    <div class="d-flex flex-wrap gap-1 mt-2">
+                        <?php if ($item['marked_for_deletion']) { ?>
+                            <span class="badge text-bg-danger">Marked for deletion</span>
+                        <?php } ?>
+                        <span class="badge text-bg-warning" data-favorite-badge <?= $item['favorite'] ? '' : 'hidden' ?>>Favorite</span>
+                        <span class="badge text-bg-secondary" data-rating-badge role="img" aria-label="<?= $item['rating'] ?? 0 ?> out of 5 stars" <?= $item['rating'] === null ? 'hidden' : '' ?>><?= str_repeat('★', $item['rating'] ?? 0) ?></span>
+                        <span class="d-inline-flex flex-wrap gap-1" data-tag-badges>
+                            <?php foreach ($item['tags'] as $tag) { ?>
+                                <a class="badge text-bg-secondary text-decoration-none" href="<?= escapeHtml(galleryUrl($filters, ['tag' => $tag, 'page' => null])) ?>"><?= escapeHtml($tag) ?></a>
+                            <?php } ?>
+                        </span>
+                    </div>
+                    <details class="mt-2">
+                        <summary>Edit details</summary>
+                        <form class="mt-2" data-card-details action="<?= escapeHtml($currentUrl) ?>" method="post">
+                            <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
+                            <label class="form-check mb-2">
+                                <input type="checkbox" class="form-check-input" name="favorite" value="1" <?= $item['favorite'] ? 'checked' : '' ?>> Favorite
+                            </label>
+                            <div class="mb-2">
+                                <label class="form-label" for="<?= $id ?>-rating">Rating</label>
+                                <select class="form-select form-select-sm" id="<?= $id ?>-rating" name="rating">
+                                    <option value="">Unrated</option>
+                                    <?php for ($stars = 1; $stars <= 5; $stars++) { ?>
+                                        <option value="<?= $stars ?>" <?= $item['rating'] === $stars ? 'selected' : '' ?>><?= str_repeat('★', $stars) ?> <?= $stars ?> of 5</option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="<?= $id ?>-tags">Tags (one per line)</label>
+                                <textarea class="form-control form-control-sm" id="<?= $id ?>-tags" name="tags" rows="2" placeholder="subject:train"><?= escapeHtml(implode("\n", $item['tags'])) ?></textarea>
+                            </div>
+                            <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                        </form>
+                    </details>
+                    <details class="mt-2">
+                        <summary>Manage file</summary>
+                        <form class="mt-2" action="<?= escapeHtml($currentUrl) ?>" method="post">
+                            <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
+                            <div class="mb-2">
+                                <label class="form-label" for="<?= $id ?>-folder">Destination folder</label>
+                                <input class="form-control form-control-sm" id="<?= $id ?>-folder" name="folder" list="move-folders" value="<?= escapeHtml($folder === '.' ? '' : $folder) ?>" placeholder="Library root">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="<?= $id ?>-name">Filename</label>
+                                <input class="form-control form-control-sm" id="<?= $id ?>-name" name="name" value="<?= escapeHtml(basename($file)) ?>" required>
+                            </div>
+                            <button class="btn btn-sm btn-outline-light" type="submit" name="action" value="move">Move or rename</button>
+                        </form>
+                        <form class="mt-2" action="<?= escapeHtml($currentUrl) ?>" method="post">
+                            <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
+                            <button class="btn btn-sm btn-outline-danger" type="submit" name="action" value="<?= $item['marked_for_deletion'] ? 'unmark' : 'mark' ?>">
+                                <?= $item['marked_for_deletion'] ? 'Clear deletion mark' : 'Mark for deletion' ?>
+                            </button>
+                        </form>
+                    </details>
+                </div>
+            </article>
+        </div>
+    <?php } ?>
+    <?php
+}
+
+function parseGalleryTags(string $tags): array
+{
+    return array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $tags)), static fn ($tag) => $tag !== ''));
+}
+
+function saveViewerMetadata(string $directory, array $fields): array
+{
+    $file = $fields['file'] ?? null;
+    $value = $fields['value'] ?? null;
+    if (!is_string($file) || !is_string($value)) {
+        throw new InvalidArgumentException('Invalid media details.');
+    }
+    $changes = match ($fields['action'] ?? '') {
+        'favorite' => in_array($value, ['0', '1'], true) ? ['favorite' => $value === '1'] : null,
+        'rating' => in_array($value, ['', '1', '2', '3', '4', '5'], true) ? ['rating' => $value === '' ? null : (int) $value] : null,
+        'tags' => ['tags' => parseGalleryTags($value)],
+        default => null,
+    };
+    if ($changes === null) {
+        throw new InvalidArgumentException('Invalid media details.');
+    }
+    return patchMediaMetadata($directory, $file, $changes, static fn () => requireLibraryMediaFile($directory, $file));
+}
+
 function updateGalleryFile(string $directory, array $fields): string
 {
     $file = $fields['file'] ?? null;
@@ -43,14 +153,38 @@ function updateGalleryFile(string $directory, array $fields): string
         throw new InvalidArgumentException('Invalid metadata.');
     }
 
-    $tags = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $tags)), static fn ($tag) => $tag !== ''));
-    saveMediaMetadata($directory, $file, $favorite === '1', $rating === '' ? null : (int) $rating, $tags, $checkFile);
+    saveMediaMetadata($directory, $file, $favorite === '1', $rating === '' ? null : (int) $rating, parseGalleryTags($tags), $checkFile);
     return $file;
 }
 
 $filters = galleryFilters($_GET);
+$batchRequest = isset($_GET['batch']);
+$viewerEdit = $_SERVER['REQUEST_METHOD'] === 'POST' && ($_SERVER['HTTP_ACCEPT'] ?? '') === 'application/json';
 try {
     $error = recoverMediaRelocation($libraryDirectory);
+    if ($error !== null && ($batchRequest || $viewerEdit)) {
+        stopRequest(409, $error);
+    }
+    if ($batchRequest) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' || !is_string($_GET['batch'])
+            || (isset($filters['random']) && !isset($filters['seed']))) {
+            throw new InvalidArgumentException('Invalid gallery batch request.');
+        }
+        try {
+            [$batch, $annotations, $page, $cursor] = loadMediaBatch($libraryDirectory, $filters, $_GET['batch']);
+        } catch (DomainException $exception) {
+            stopRequest(409, $exception->getMessage(), 'view-changed');
+        }
+        ob_start();
+        renderGalleryCards($batch, $annotations, array_replace($filters, ['page' => (string) $page]));
+        sendGalleryJson(['html' => ob_get_clean(), 'cursor' => $cursor]);
+        return;
+    }
+    if ($viewerEdit) {
+        $item = saveViewerMetadata($libraryDirectory, $_POST);
+        sendGalleryJson(['item' => $item, 'matchesView' => galleryMatchesAnnotations($item, $filters)]);
+        return;
+    }
     if ($error === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $file = updateGalleryFile($libraryDirectory, $_POST);
         $changes = [];
@@ -64,6 +198,9 @@ try {
         return;
     }
 } catch (DomainException $exception) {
+    if ($batchRequest || $viewerEdit) {
+        stopRequest(409, $exception->getMessage());
+    }
     $error = $exception->getMessage();
     http_response_code(409);
 }
@@ -72,8 +209,7 @@ if ($error === null && isset($filters['random']) && !isset($filters['seed'])) {
     return;
 }
 
-[$files, $folders, $page, $pageCount, $annotations, $tags] = loadMediaGallery($libraryDirectory, $filters);
-$currentUrl = galleryUrl($filters);
+[$files, $folders, $page, $pageCount, $annotations, $tags, $cursor] = loadMediaGallery($libraryDirectory, $filters);
 $resetOrder = ['random' => null, 'seed' => null, 'newest' => null, 'oldest' => null, 'page' => null];
 $notice = match ($_GET['notice'] ?? '') {
     'moved' => 'File moved or renamed.',
@@ -89,7 +225,7 @@ $notice = match ($_GET['notice'] ?? '') {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MediaManager</title>
     <link href="/assets/bootstrap.min.css" rel="stylesheet">
-    <link href="/assets/video-js.css" rel="stylesheet">
+    <link href="/assets/gallery.css" rel="stylesheet">
 </head>
 <body>
     <header class="py-3 mb-3 border-bottom">
@@ -144,6 +280,7 @@ $notice = match ($_GET['notice'] ?? '') {
         </div>
     </header>
     <main class="container pb-4">
+        <h1 id="gallery-heading" class="visually-hidden" tabindex="-1">Media gallery</h1>
         <?php if ($error !== null) { ?>
             <p class="alert alert-danger" role="alert"><?= escapeHtml($error) ?></p>
         <?php } elseif ($notice !== null) { ?>
@@ -158,91 +295,11 @@ $notice = match ($_GET['notice'] ?? '') {
                 <?php } ?>
             </datalist>
         <?php } ?>
-        <div class="row g-3">
-            <?php foreach ($files as $file) { ?>
-                <?php
-                $item = $annotations[$file] ?? ['favorite' => false, 'rating' => null, 'marked_for_deletion' => false, 'tags' => []];
-                $mediaUrl = '/media?file=' . rawurlencode($file);
-                $id = 'media-' . hash('sha256', $file);
-                $folder = dirname($file);
-                ?>
-                <div class="col-md-6 col-lg-4" id="<?= $id ?>">
-                    <article class="card">
-                        <div class="card-body">
-                            <p class="text-break mb-2"><?= escapeHtml($file) ?></p>
-                            <?php if (mediaType($file) === 'image/gif') { ?>
-                                <img style="max-height: 240px;" class="img-fluid" loading="lazy" src="<?= escapeHtml($mediaUrl) ?>" alt="<?= escapeHtml(basename($file)) ?>">
-                            <?php } else { ?>
-                                <video class="video-js" controls preload="none" data-setup='{"fluid": true}'>
-                                    <source src="<?= escapeHtml($mediaUrl) ?>" type="<?= escapeHtml(mediaType($file)) ?>">
-                                    <p class="vjs-no-js">Use a browser with HTML5 video playback.</p>
-                                </video>
-                            <?php } ?>
-                            <div class="d-flex flex-wrap gap-1 mt-2">
-                                <?php if ($item['marked_for_deletion']) { ?>
-                                    <span class="badge text-bg-danger">Marked for deletion</span>
-                                <?php } ?>
-                                <?php if ($item['favorite']) { ?>
-                                    <span class="badge text-bg-warning">Favorite</span>
-                                <?php } ?>
-                                <?php if ($item['rating'] !== null) { ?>
-                                    <span class="badge text-bg-secondary" role="img" aria-label="<?= $item['rating'] ?> out of 5 stars"><?= str_repeat('★', $item['rating']) ?></span>
-                                <?php } ?>
-                                <?php foreach ($item['tags'] as $tag) { ?>
-                                    <a class="badge text-bg-secondary text-decoration-none" href="<?= escapeHtml(galleryUrl($filters, ['tag' => $tag, 'page' => null])) ?>"><?= escapeHtml($tag) ?></a>
-                                <?php } ?>
-                            </div>
-                            <details class="mt-2">
-                                <summary>Edit details</summary>
-                                <form class="mt-2" action="<?= escapeHtml($currentUrl) ?>" method="post">
-                                    <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
-                                    <label class="form-check mb-2">
-                                        <input type="checkbox" class="form-check-input" name="favorite" value="1" <?= $item['favorite'] ? 'checked' : '' ?>> Favorite
-                                    </label>
-                                    <div class="mb-2">
-                                        <label class="form-label" for="<?= $id ?>-rating">Rating</label>
-                                        <select class="form-select form-select-sm" id="<?= $id ?>-rating" name="rating">
-                                            <option value="">Unrated</option>
-                                            <?php for ($stars = 1; $stars <= 5; $stars++) { ?>
-                                                <option value="<?= $stars ?>" <?= $item['rating'] === $stars ? 'selected' : '' ?>><?= str_repeat('★', $stars) ?> <?= $stars ?> of 5</option>
-                                            <?php } ?>
-                                        </select>
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label" for="<?= $id ?>-tags">Tags (one per line)</label>
-                                        <textarea class="form-control form-control-sm" id="<?= $id ?>-tags" name="tags" rows="2" placeholder="subject:train"><?= escapeHtml(implode("\n", $item['tags'])) ?></textarea>
-                                    </div>
-                                    <button class="btn btn-sm btn-primary" type="submit">Save</button>
-                                </form>
-                            </details>
-                            <details class="mt-2">
-                                <summary>Manage file</summary>
-                                <form class="mt-2" action="<?= escapeHtml($currentUrl) ?>" method="post">
-                                    <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
-                                    <div class="mb-2">
-                                        <label class="form-label" for="<?= $id ?>-folder">Destination folder</label>
-                                        <input class="form-control form-control-sm" id="<?= $id ?>-folder" name="folder" list="move-folders" value="<?= escapeHtml($folder === '.' ? '' : $folder) ?>" placeholder="Library root">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label" for="<?= $id ?>-name">Filename</label>
-                                        <input class="form-control form-control-sm" id="<?= $id ?>-name" name="name" value="<?= escapeHtml(basename($file)) ?>" required>
-                                    </div>
-                                    <button class="btn btn-sm btn-outline-light" type="submit" name="action" value="move">Move or rename</button>
-                                </form>
-                                <form class="mt-2" action="<?= escapeHtml($currentUrl) ?>" method="post">
-                                    <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
-                                    <button class="btn btn-sm btn-outline-danger" type="submit" name="action" value="<?= $item['marked_for_deletion'] ? 'unmark' : 'mark' ?>">
-                                        <?= $item['marked_for_deletion'] ? 'Clear deletion mark' : 'Mark for deletion' ?>
-                                    </button>
-                                </form>
-                            </details>
-                        </div>
-                    </article>
-                </div>
-            <?php } ?>
+        <div class="row g-3" id="gallery-grid" data-view-url="<?= escapeHtml(galleryUrl($filters)) ?>" data-cursor="<?= escapeHtml($cursor ?? '') ?>">
+            <?php renderGalleryCards($files, $annotations, $filters); ?>
         </div>
         <?php if ($pageCount > 1) { ?>
-            <nav class="mt-3" aria-label="Media pages">
+            <nav class="mt-3" id="gallery-pages" aria-label="Media pages">
                 <ul class="pagination flex-wrap justify-content-center">
                     <?php for ($i = 1; $i <= $pageCount; $i++) { ?>
                         <li class="page-item <?= $page === $i ? 'active' : '' ?>">
@@ -252,8 +309,59 @@ $notice = match ($_GET['notice'] ?? '') {
                 </ul>
             </nav>
         <?php } ?>
+        <div id="gallery-more" class="text-center py-4" hidden>
+            <p class="text-body-secondary mb-2" id="gallery-status" role="status"></p>
+            <button type="button" class="btn btn-outline-light" id="gallery-load">Load more</button>
+            <a class="btn btn-outline-light" href="<?= escapeHtml(galleryUrl($filters, ['page' => null])) ?>" id="gallery-refresh" hidden>Refresh results</a>
+        </div>
     </main>
+    <dialog id="media-viewer" aria-labelledby="viewer-title">
+        <div class="viewer-layout">
+            <header class="viewer-toolbar">
+                <h2 class="h6 text-break mb-0" id="viewer-title" tabindex="-1"></h2>
+                <div class="viewer-actions">
+                    <button type="button" class="btn btn-sm btn-outline-light" id="viewer-previous">Previous</button>
+                    <button type="button" class="btn btn-sm btn-outline-light" id="viewer-next">Next</button>
+                    <button type="button" class="btn btn-sm btn-outline-light" id="viewer-fullscreen" hidden>Fullscreen</button>
+                    <button type="button" class="btn btn-sm btn-light" id="viewer-close">Close</button>
+                </div>
+            </header>
+            <div class="viewer-stage">
+                <video id="viewer-video" controls playsinline preload="metadata" hidden></video>
+                <img id="viewer-image" alt="" hidden>
+            </div>
+            <footer class="viewer-details">
+                <div class="viewer-actions">
+                    <button type="button" class="btn btn-sm btn-outline-warning" id="viewer-favorite" aria-pressed="false">Favorite</button>
+                    <label class="visually-hidden" for="viewer-rating">Rating</label>
+                    <select class="form-select form-select-sm w-auto" id="viewer-rating">
+                        <option value="">Unrated</option>
+                        <?php for ($stars = 1; $stars <= 5; $stars++) { ?>
+                            <option value="<?= $stars ?>"><?= str_repeat('★', $stars) ?> <?= $stars ?> of 5</option>
+                        <?php } ?>
+                    </select>
+                    <button type="button" class="btn btn-sm btn-outline-light" id="viewer-edit-tags" aria-controls="viewer-tag-editor" aria-expanded="false">Edit tags</button>
+                    <span id="viewer-tags" class="viewer-actions" aria-label="Tags"></span>
+                </div>
+                <form id="viewer-tag-editor" class="mt-2" hidden>
+                    <label for="viewer-tag-input" class="form-label">Tags (one per line)</label>
+                    <textarea id="viewer-tag-input" rows="3" class="form-control"></textarea>
+                    <div class="viewer-actions mt-2">
+                        <button type="submit" class="btn btn-sm btn-primary" id="viewer-save-tags">Save tags</button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="viewer-cancel-tags">Cancel</button>
+                    </div>
+                </form>
+                <p class="text-body-secondary mb-0" role="status" id="viewer-status" hidden></p>
+                <p class="text-danger mb-0" role="alert" id="viewer-error" hidden></p>
+                <a class="link-light" href="<?= escapeHtml(galleryUrl($filters, ['page' => null])) ?>" id="viewer-refresh" hidden>Refresh results</a>
+                <details class="viewer-shortcuts">
+                    <summary>Keyboard shortcuts</summary>
+                    <p class="small mb-0">← / → Previous or next · Space Play or pause · F Favorite · 1–5 Rate · 0 Clear rating · T Edit tags · Esc Close</p>
+                </details>
+            </footer>
+        </div>
+    </dialog>
     <script src="/assets/bootstrap.bundle.min.js"></script>
-    <script src="/assets/video.min.js"></script>
+    <script src="/assets/gallery.js" defer></script>
 </body>
 </html>

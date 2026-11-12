@@ -7,8 +7,22 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Cross-Origin-Resource-Policy: same-origin');
 
-function stopRequest(int $status, string $message): never
+function sendGalleryJson(array $payload, int $status = 200): void
 {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+}
+
+function stopRequest(int $status, string $message, ?string $code = null): never
+{
+    if ($code !== null) {
+        header('X-MediaManager-Error: ' . $code);
+    }
+    if (($_SERVER['HTTP_ACCEPT'] ?? '') === 'application/json') {
+        sendGalleryJson(['message' => $message, 'error' => $code], $status);
+        exit;
+    }
     http_response_code($status);
     header('Content-Type: text/plain; charset=UTF-8');
     exit($message);
@@ -88,6 +102,8 @@ $assets = [
     '/assets/video-js.css' => 'text/css',
     '/assets/bootstrap.bundle.min.js' => 'text/javascript',
     '/assets/video.min.js' => 'text/javascript',
+    '/assets/gallery.css' => 'text/css',
+    '/assets/gallery.js' => 'text/javascript',
 ];
 if (isset($assets[$route])) {
     header('Content-Type: ' . $assets[$route]);
@@ -114,6 +130,8 @@ try {
     require __DIR__ . '/index.php';
 } catch (InvalidArgumentException $error) {
     stopRequest(400, 'The media file, filters, or metadata are invalid.');
+} catch (MediaLibraryUnavailable $error) {
+    stopRequest(503, 'The media library is unavailable.', 'library-unavailable');
 } catch (RuntimeException $error) {
     stopRequest(503, 'The media library or its SQLite database is unavailable.');
 }

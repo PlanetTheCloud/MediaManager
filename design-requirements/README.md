@@ -13,26 +13,23 @@ MediaManager is a single-user, offline gallery for videos and GIFs already organ
 
 The app controls its own storage and browser profile. Windows can also write to the system drive through paging, hibernation, or crash dumps. OS-level traces require separate controls.
 
-## Feature plan
+## Next milestone
 
-| Release | Features |
-| --- | --- |
-| 1. Browse, tag, and favorite | All Media, Folders, and Favorites. Responsive grid with infinite scroll, a Load more fallback, and scroll restoration after closing a clip. Fullscreen viewer with keyboard navigation and one active player. One-click favorites, one to five stars with an unrated state, namespaced tags, tag autocomplete and counts, bulk tagging, and filters for folder, filename, tag, media type, favorite status, and rating. |
-| 2. Organize and rediscover | Saved searches, collections, and an Untagged queue. Rename and merge tags, add aliases, support OR groups, and filter by duration and dimensions. Add seeded shuffle and a full-height clips view. |
-| 3. Manage larger libraries | Tag implications with inherited tags shown in the viewer. Preview filename and folder tagging rules before applying them. Review exact duplicates, then evaluate similar-media review. Offer optional persistent thumbnails on the encrypted volume. |
+[Infinite grid and fullscreen viewer](infinite-grid-and-viewer.md) covers scrolling, playback, keyboard shortcuts, and single-item editing.
 
-Support queries such as `subject:train -status:draft is:favorite type:video` and let users build the same query by clicking tags and filters. Preserve existing filename searches such as `demo -draft`.
+## TODO after the grid and viewer
 
-## Implementation priorities
+- [ ] **Open & lock.** Launch a dedicated browser profile on the encrypted volume and implement the lock sequence above.
+- [ ] **Bulk editing.** Select multiple clips to add or remove tags, move them, or mark them for deletion. Make database edits transactional. Start with undo for bulk tagging and deletion marks.
+- [ ] **Booru-style search.** Add tag autocomplete with counts, AND and exclusion filters, OR groups, and media type, duration, and dimension filters. Support queries such as `subject:train -status:draft is:favorite type:video` through text and clickable filters. Preserve filename searches such as `demo -draft`.
+- [ ] **Saved views and collections.** Add saved searches, manual collections, an Untagged queue, and an Unrated favorites view. Consider a continuous clips feed for rediscovery.
+- [ ] **Moves outside the app.** Assign stable item IDs and use content hashes to reconnect unambiguous moves or renames. Surface uncertain matches for review. Retain catalog entries if a volume is unavailable or a scan is interrupted.
+- [ ] **Tag management.** Rename and merge tags, add aliases and implications, and show inherited tags. Preview folder and filename tagging rules before applying them.
+- [ ] **Duplicate review.** Compare exact duplicates side by side and evaluate similar-media review once that workflow is useful.
+- [ ] **Optional thumbnails.** Offer an opt-in thumbnail cache under the media library directory if the grid needs it. Show its size and location and provide a clear-cache control.
 
-1. Establish the library and lock boundary before collecting metadata. Replace the existing PHP session file lists and serve only approved media paths. Refuse paths that resolve outside the library.
-2. Use cursor-based pagination with a stable tie-breaker. Apply filters before fetching each batch. When a rescan changes the result set, offer a refresh instead of reordering the grid mid-scroll.
-3. Replace preloaded players on grid cards with lightweight tiles. Load previews near the viewport, keep active previews bounded, and make failed batches retryable in place.
-4. Assign stable item IDs. Use content hashes to recognize moves and renames when the match is unambiguous. Retain catalog entries through an unavailable volume or interrupted scan. Make bulk tag edits transactional and undoable.
+## Library and privacy checks
 
-## First release checks
-
-- Scroll a large disposable library without duplicate or skipped items. Verify the viewer returns to the same card and keyboard focus.
 - Tag a batch, favorite a clip, restart, and find both by search. Rename a tagged clip and confirm its metadata survives a rescan.
 - Verify that the database and any SQLite sidecars appear directly in the media library directory and cannot be retrieved through the app. Confirm that browsing and metadata edits work with outbound internet access blocked.
 - Exercise a normal close and an interrupted session with disposable media. Check where files were written. After locking the volume, verify that a clip, its filename, tags, and favorites are inaccessible through the viewer until the library is unlocked and reopened.

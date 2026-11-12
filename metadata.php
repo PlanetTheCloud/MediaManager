@@ -4,13 +4,18 @@ const MEDIA_METADATA_FILENAME = 'mediamanager.sqlite';
 const MEDIA_METADATA_SCHEMA_VERSION = 2;
 const MEDIA_METADATA_MAX_TAGS = 100;
 const MEDIA_METADATA_MAX_TAG_LENGTH = 100;
+const EMPTY_MEDIA_METADATA = ['favorite' => false, 'rating' => null, 'marked_for_deletion' => false, 'tags' => []];
+
+class MediaLibraryUnavailable extends RuntimeException
+{
+}
 
 function openMediaMetadataDatabase(string $libraryDirectory, bool $write = false): ?PDO
 {
     clearstatcache(true);
     $libraryDirectory = realpath($libraryDirectory);
     if ($libraryDirectory === false || !is_dir($libraryDirectory)) {
-        throw new RuntimeException('The media library is unavailable.');
+        throw new MediaLibraryUnavailable('The media library is unavailable.');
     }
 
     $databasePath = rtrim($libraryDirectory, '/\\') . DIRECTORY_SEPARATOR . MEDIA_METADATA_FILENAME;
@@ -158,6 +163,13 @@ function getMediaMetadata(string $libraryDirectory, array $mediaPaths): array
     }
 
     $database->beginTransaction();
+    $metadata = readMediaMetadata($database, $mediaPaths);
+    $database->commit();
+    return $metadata;
+}
+
+function readMediaMetadata(PDO $database, array $mediaPaths): array
+{
     $metadata = [];
     $version = getMediaMetadataSchemaVersion($database);
     if ($version > 0) {
@@ -188,8 +200,6 @@ function getMediaMetadata(string $libraryDirectory, array $mediaPaths): array
             }
         }
     }
-    $database->commit();
-
     return $metadata;
 }
 
@@ -275,44 +285,48 @@ function saveMediaMetadata(
     ?callable $checkFile = null
 ): array
 {
+    $saved = patchMediaMetadata($libraryDirectory, $mediaPath, compact('favorite', 'rating', 'tags'), $checkFile);
+    return ['favorite' => $saved['favorite'], 'rating' => $saved['rating'], 'tags' => $saved['tags']];
+}
+
+function patchMediaMetadata(string $libraryDirectory, string $mediaPath, array $changes, ?callable $checkFile = null): array
+{
     validateMediaMetadataPath($mediaPath);
+    $rating = $changes['rating'] ?? null;
     if ($rating !== null && ($rating < 1 || $rating > 5)) {
         throw new InvalidArgumentException('A rating must be between 1 and 5 stars.');
     }
-    $tags = normalizeMediaMetadataTags($tags);
+    $tags = isset($changes['tags']) ? normalizeMediaMetadataTags($changes['tags']) : null;
 
-    return writeMediaMetadata($libraryDirectory, static function (PDO $database) use ($mediaPath, $favorite, $rating, $tags, $checkFile): array {
+    return writeMediaMetadata($libraryDirectory, static function (PDO $database) use ($mediaPath, $changes, $rating, $tags, $checkFile): array {
         requireNoPendingMediaRelocation($database);
         if ($checkFile !== null) {
             $checkFile();
         }
-        $savedTags = [];
         $statement = $database->prepare('
             INSERT INTO media_metadata (path, favorite, rating) VALUES (?, ?, ?)
-            ON CONFLICT(path) DO UPDATE SET favorite = excluded.favorite, rating = excluded.rating
+            ON CONFLICT(path) DO UPDATE SET
+                favorite = CASE WHEN ? THEN excluded.favorite ELSE media_metadata.favorite END,
+                rating = CASE WHEN ? THEN excluded.rating ELSE media_metadata.rating END
         ');
-        $statement->execute([$mediaPath, (int) $favorite, $rating]);
+        $statement->execute([
+            $mediaPath, (int) ($changes['favorite'] ?? false), $rating,
+            (int) array_key_exists('favorite', $changes), (int) array_key_exists('rating', $changes),
+        ]);
 
-        $statement = $database->prepare('DELETE FROM media_tags WHERE media_path = ?');
-        $statement->execute([$mediaPath]);
-
-        if ($tags) {
+        if ($tags !== null) {
+            $statement = $database->prepare('DELETE FROM media_tags WHERE media_path = ?');
+            $statement->execute([$mediaPath]);
             $createTag = $database->prepare('INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO NOTHING');
-            $findTag = $database->prepare('SELECT id, name FROM tags WHERE name = ?');
-            $attachTag = $database->prepare('INSERT INTO media_tags (media_path, tag_id) VALUES (?, ?)');
+            $attachTag = $database->prepare('INSERT INTO media_tags (media_path, tag_id) SELECT ?, id FROM tags WHERE name = ?');
             foreach ($tags as $tag) {
                 $createTag->execute([$tag]);
-                $findTag->execute([$tag]);
-                $storedTag = $findTag->fetch();
-                $findTag->closeCursor();
-                $attachTag->execute([$mediaPath, $storedTag['id']]);
-                $savedTags[] = $storedTag['name'];
+                $attachTag->execute([$mediaPath, $tag]);
             }
+            $database->exec('DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM media_tags WHERE media_tags.tag_id = tags.id)');
         }
 
         removeEmptyMediaMetadata($database, $mediaPath);
-        $database->exec('DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM media_tags WHERE media_tags.tag_id = tags.id)');
-        usort($savedTags, 'strcasecmp');
-        return ['favorite' => $favorite, 'rating' => $rating, 'tags' => $savedTags];
+        return readMediaMetadata($database, [$mediaPath])[$mediaPath] ?? EMPTY_MEDIA_METADATA;
     });
 }

@@ -27,6 +27,17 @@
     const viewerStatus = byId('viewer-status');
     const viewerError = byId('viewer-error');
     const viewerRefresh = byId('viewer-refresh');
+    const bulkTools = byId('bulk-tools');
+    const bulkToggle = byId('bulk-toggle');
+    const bulkForm = byId('bulk-form');
+    const bulkAction = byId('bulk-action');
+    const bulkReview = byId('bulk-review');
+    const bulkApply = byId('bulk-apply');
+    const bulkUndo = byId('bulk-undo');
+    const bulkRecovery = byId('bulk-recovery');
+    const bulkReport = byId('bulk-move-report');
+    const bulkStatus = byId('bulk-status');
+    const bulkSelection = new Set();
     const viewUrl = new URL(grid.dataset.viewUrl, location.href);
     const requests = new AbortController();
 
@@ -41,6 +52,9 @@
     let scrollPosition = null;
     let saving = false;
     let waitingForNext = false;
+    let selecting = false;
+    let bulkBusy = false;
+    let bulkPreview = null;
 
     const observer = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
         if (entries.some(entry => entry.isIntersecting)) {
@@ -85,6 +99,11 @@
         inactive = true;
         observer?.disconnect();
         requests.abort();
+        bulkSelection.clear();
+        bulkPreview = null;
+        if (bulkReview.open) {
+            bulkReview.close();
+        }
         releaseMedia();
         if (dialog.open) {
             dialog.close();
@@ -175,6 +194,7 @@
                 }
             }
             grid.append(template.content);
+            updateBulkSelection();
             cursor = batch.cursor;
             showMore(cursor ? '' : 'End of results.');
             if (cursor) {
@@ -317,7 +337,295 @@
         stars.setAttribute('aria-label', `${item.rating ?? 0} out of 5 stars`);
         renderTags(card.querySelector('[data-tag-badges]'), item.tags, tagLinks);
         renderTags(card.querySelector('[data-inherited-tags]'), item.inherited_tags);
+        card.querySelector('[data-mark-badge]').hidden = !item.marked_for_deletion;
+        const mark = card.querySelector('[data-card-mark]');
+        mark.value = item.marked_for_deletion ? 'unmark' : 'mark';
+        mark.textContent = item.marked_for_deletion ? 'Clear deletion mark' : 'Mark for deletion';
     }
+
+    function updateBulkSelection() {
+        for (const card of grid.children) {
+            const checkbox = card.querySelector('[data-bulk-select]');
+            checkbox.closest('[data-bulk-control]').hidden = !selecting;
+            checkbox.checked = bulkSelection.has(card.dataset.file);
+            checkbox.disabled = bulkBusy;
+        }
+        bulkToggle.setAttribute('aria-pressed', String(selecting));
+        bulkToggle.textContent = selecting ? 'Done selecting' : 'Select';
+        bulkToggle.disabled = bulkBusy;
+        bulkForm.hidden = !selecting;
+        byId('bulk-count').textContent = `${bulkSelection.size} selected`;
+        byId('bulk-loaded').disabled = bulkBusy;
+        byId('bulk-preview').disabled = bulkBusy || !bulkSelection.size;
+        bulkUndo.disabled = bulkBusy;
+        for (const button of bulkRecovery.querySelectorAll('button')) {
+            button.disabled = bulkBusy;
+        }
+        bulkApply.disabled = bulkBusy || !bulkPreview?.canApply;
+        byId('bulk-close').disabled = bulkBusy;
+    }
+
+    async function bulkRequest(action, payload) {
+        bulkBusy = true;
+        updateBulkSelection();
+        try {
+            const response = await fetch(viewUrl, {
+                method: 'POST',
+                headers: { Accept: 'application/json' },
+                body: new URLSearchParams({ action, payload: JSON.stringify(payload) }),
+                signal: requests.signal,
+            });
+            if (showUnavailable(response) || inactive) {
+                return null;
+            }
+            const result = await response.json();
+            if (!response.ok && !result.preview) {
+                throw new Error(result.message || 'The bulk action could not be completed.');
+            }
+            return result;
+        } finally {
+            bulkBusy = false;
+            if (!inactive) {
+                updateBulkSelection();
+            }
+        }
+    }
+
+    function showBulkPreview(preview, request, actionLabel, previous = null) {
+        const { changed, unchanged, blocked } = preview.counts;
+        bulkPreview = {
+            request, actionLabel, preview,
+            canApply: changed > 0 && !previous && (blocked === 0 || request.operation === 'move'),
+        };
+        const heading = byId('bulk-review-title');
+        heading.textContent = preview.tags.length ? `${actionLabel} · ${preview.tags.join(', ')}` : actionLabel;
+        const summary = `${changed} changed · ${unchanged} unchanged · ${blocked} blocked`;
+        byId('bulk-review-counts').textContent = previous
+            ? `The selection or its details changed. Close this review and preview again. ${summary}`
+            : summary;
+        const old = new Map(previous?.rows.map(row => [row.path, row]));
+        const items = document.createDocumentFragment();
+        for (const row of preview.rows) {
+            const item = document.createElement('li');
+            item.className = 'list-group-item text-break';
+            const parts = [row.destination === undefined ? row.path : `${row.path} → ${row.destination}`, row.status];
+            const before = old.get(row.path);
+            if (before && before.fingerprint !== row.fingerprint) {
+                if (before.fileVersion !== row.fileVersion) {
+                    parts.push('File or folder identity changed since preview');
+                } else if (before.detailsVersion !== row.detailsVersion) {
+                    parts.push('Saved details changed since preview');
+                } else {
+                    parts.push('Availability changed since preview');
+                }
+            }
+            if (row.reason) {
+                parts.push(row.reason);
+            }
+            if (row.tags.length) {
+                parts.push(row.tags.join(', '));
+            }
+            if (row.inherited.length) {
+                parts.push(`Still visible through a parent relationship: ${row.inherited.join(', ')}`);
+            }
+            item.textContent = parts.join(' · ');
+            items.append(item);
+        }
+        byId('bulk-review-files').replaceChildren(items);
+        updateBulkSelection();
+        if (!bulkReview.open) {
+            bulkReview.showModal();
+        }
+        heading.focus();
+    }
+
+    function updateBulkCards(result) {
+        const cards = new Map(Array.from(grid.children, card => [card.dataset.file, card]));
+        for (const update of result.updates) {
+            const card = cards.get(update.path);
+            if (card) {
+                updateCardDetails(card, update.item, update.tagLinks);
+            }
+        }
+        bulkUndo.dataset.token = result.undo ?? '';
+        bulkUndo.hidden = !result.undo;
+        if (result.updates.some(update => update.matchesView !== cards.has(update.path))) {
+            markViewStale();
+        } else if (result.updates.length) {
+            document.dispatchEvent(new Event('gallery:results-changed'));
+        }
+    }
+
+    function showBulkMove(move, blocked = []) {
+        const { completed, failed, remaining } = move.counts;
+        let resume = Array.from(bulkRecovery.children).find(button => button.dataset.bulkResume === move.batch);
+        if ((failed || remaining) && !resume) {
+            resume = document.createElement('button');
+            resume.type = 'button';
+            resume.className = 'btn btn-outline-warning btn-sm';
+            resume.textContent = 'Resume move batch';
+            resume.dataset.bulkResume = move.batch;
+            bulkRecovery.append(resume);
+        } else if (!failed && !remaining) {
+            resume?.remove();
+        }
+        const list = document.createElement('ul');
+        list.className = 'list-group overflow-auto';
+        const moved = new Set();
+        for (const row of move.rows) {
+            const item = document.createElement('li');
+            item.className = 'list-group-item text-break';
+            item.textContent = `${row.source} → ${row.destination} · ${row.state}${row.error ? ` · ${row.error}` : ''}`;
+            list.append(item);
+            if (row.state === 'completed') {
+                moved.add(row.source);
+                bulkSelection.delete(row.source);
+            }
+        }
+        for (const row of blocked) {
+            const item = document.createElement('li');
+            item.className = 'list-group-item text-break';
+            item.textContent = `${row.path} → ${row.destination} · blocked · ${row.reason}`;
+            list.append(item);
+        }
+        for (const card of grid.children) {
+            if (moved.has(card.dataset.file)) {
+                card.remove();
+            }
+        }
+        bulkReport.replaceChildren(list);
+        bulkReport.hidden = false;
+        const counts = `${completed} completed · ${failed} failed · ${remaining} remaining`;
+        setMessage(bulkStatus, [counts, blocked.length ? `${blocked.length} blocked` : '', move.message].filter(Boolean).join(' · '));
+        updateBulkSelection();
+        if (completed) {
+            markViewStale();
+        }
+    }
+
+    function reportBulkError(error) {
+        if (!inactive) {
+            const message = error instanceof TypeError ? 'Could not reach the library. Try again.' : error.message;
+            setMessage(bulkReview.open ? byId('bulk-review-counts') : bulkStatus, message);
+        }
+    }
+
+    bulkTools.hidden = !grid.children.length && bulkUndo.hidden && !bulkRecovery.children.length;
+    bulkToggle.addEventListener('click', () => {
+        selecting = !selecting;
+        if (!selecting) {
+            bulkSelection.clear();
+        }
+        updateBulkSelection();
+    });
+    byId('bulk-loaded').addEventListener('click', () => {
+        for (const card of grid.children) {
+            bulkSelection.add(card.dataset.file);
+        }
+        updateBulkSelection();
+    });
+    grid.addEventListener('change', event => {
+        if (!event.target.matches('[data-bulk-select]')) {
+            return;
+        }
+        const path = event.target.closest('[data-file]').dataset.file;
+        if (event.target.checked) {
+            bulkSelection.add(path);
+        } else {
+            bulkSelection.delete(path);
+        }
+        updateBulkSelection();
+    });
+    bulkAction.addEventListener('change', () => {
+        byId('bulk-tag-field').hidden = !bulkAction.value.endsWith('-tags');
+        byId('bulk-folder-field').hidden = bulkAction.value !== 'move';
+    });
+    bulkForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (bulkBusy || !bulkSelection.size) {
+            return;
+        }
+        const request = {
+            operation: bulkAction.value,
+            paths: [...bulkSelection],
+            tags: byId('bulk-tags').value.split(/\r?\n/).map(tag => tag.trim()).filter(Boolean),
+            destination: byId('bulk-folder').value,
+        };
+        const actionLabel = bulkAction.selectedOptions[0].textContent;
+        setMessage(bulkStatus, 'Preparing preview…');
+        try {
+            const preview = await bulkRequest('bulk-preview', request);
+            if (preview) {
+                setMessage(bulkStatus, '');
+                showBulkPreview(preview, request, actionLabel);
+            }
+        } catch (error) {
+            reportBulkError(error);
+        }
+    });
+    byId('bulk-close').addEventListener('click', () => bulkReview.close());
+    bulkReview.addEventListener('cancel', event => {
+        if (bulkBusy) {
+            event.preventDefault();
+        }
+    });
+    bulkReview.addEventListener('close', () => {
+        bulkPreview = null;
+        byId('bulk-preview').focus();
+    });
+    bulkApply.addEventListener('click', async () => {
+        if (bulkBusy || !bulkPreview?.canApply) {
+            return;
+        }
+        const { request, actionLabel, preview } = bulkPreview;
+        try {
+            const result = await bulkRequest('bulk-apply', { ...request, token: preview.token });
+            if (!result) {
+                return;
+            }
+            if (result.preview) {
+                showBulkPreview(result.preview, request, actionLabel, preview);
+                return;
+            }
+            bulkReview.close();
+            if (result.move) {
+                showBulkMove(result.move, preview.rows.filter(row => row.status === 'blocked'));
+            } else {
+                updateBulkCards(result);
+                const { changed, unchanged } = result.counts;
+                setMessage(bulkStatus, `${changed} changed · ${unchanged} unchanged`);
+            }
+        } catch (error) {
+            reportBulkError(error);
+        }
+    });
+    bulkUndo.addEventListener('click', async () => {
+        setMessage(bulkStatus, 'Undoing bulk edit…');
+        try {
+            const result = await bulkRequest('bulk-undo', { token: bulkUndo.dataset.token });
+            if (result) {
+                updateBulkCards(result);
+                setMessage(bulkStatus, `${result.undone} changes undone · ${result.skipped} skipped`);
+            }
+        } catch (error) {
+            reportBulkError(error);
+        }
+    });
+    bulkRecovery.addEventListener('click', async event => {
+        const button = event.target.closest('[data-bulk-resume]');
+        if (!button || bulkBusy) {
+            return;
+        }
+        setMessage(bulkStatus, 'Resuming move batch…');
+        try {
+            const result = await bulkRequest('bulk-resume', { token: button.dataset.bulkResume });
+            if (result) {
+                showBulkMove(result.move);
+            }
+        } catch (error) {
+            reportBulkError(error);
+        }
+    });
 
     async function saveViewerChange(action, value) {
         if (!selected || inactive) {

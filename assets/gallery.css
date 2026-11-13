@@ -43,6 +43,21 @@ html.viewer-open {
     scrollbar-gutter: auto;
 }
 
+#bulk-review {
+    width: min(42rem, calc(100% - 2rem));
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+#bulk-review::backdrop {
+    background: rgb(0 0 0 / 65%);
+}
+
+#bulk-review-files,
+#bulk-move-report ul {
+    max-height: 45vh;
+}
+
 #media-viewer {
     position: fixed;
     inset: 0;

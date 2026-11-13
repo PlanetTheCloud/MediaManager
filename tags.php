@@ -129,7 +129,20 @@ function removeUnusedTags(PDO $database): void
             AND NOT EXISTS (SELECT 1 FROM tag_parents WHERE child_id = tags.id)
             AND NOT EXISTS (SELECT 1 FROM tag_parents WHERE parent_id = tags.id)
             AND NOT EXISTS (SELECT 1 FROM tag_rule_tags WHERE tag_id = tags.id)
+            AND NOT EXISTS (SELECT 1 FROM bulk_undo_fields WHERE tag_id = tags.id)
     ');
+}
+
+function changeDirectMediaTags(PDO $database, int $mediaId, array $added, array $removed): void
+{
+    $remove = $database->prepare('DELETE FROM media_tags WHERE media_id = ? AND tag_id = ?');
+    $add = $database->prepare('INSERT INTO media_tags (media_id, tag_id) VALUES (?, ?)');
+    foreach ($removed as $id) {
+        $remove->execute([$mediaId, $id]);
+    }
+    foreach ($added as $id) {
+        $add->execute([$mediaId, $id]);
+    }
 }
 
 function replaceDirectMediaTags(PDO $database, int $mediaId, array $names): void
@@ -138,14 +151,7 @@ function replaceDirectMediaTags(PDO $database, int $mediaId, array $names): void
     $statement = $database->prepare('SELECT tag_id FROM media_tags WHERE media_id = ?');
     $statement->execute([$mediaId]);
     $current = $statement->fetchAll(PDO::FETCH_COLUMN);
-    $remove = $database->prepare('DELETE FROM media_tags WHERE media_id = ? AND tag_id = ?');
-    $add = $database->prepare('INSERT INTO media_tags (media_id, tag_id) VALUES (?, ?)');
-    foreach (array_diff($current, $ids) as $id) {
-        $remove->execute([$mediaId, $id]);
-    }
-    foreach (array_diff($ids, $current) as $id) {
-        $add->execute([$mediaId, $id]);
-    }
+    changeDirectMediaTags($database, $mediaId, array_diff($ids, $current), array_diff($current, $ids));
     removeUnusedTags($database);
 }
 
@@ -277,6 +283,9 @@ function applyTagMerge(PDO $database, array $preview): void
     if ($preview['cycle']) {
         throw new DomainException('This merge would create a self-link or a parent cycle. Edit the parent links first.');
     }
+    // A merge consumes the source tag and also changes what overlapping target assignments represent.
+    $database->prepare('UPDATE bulk_undo_fields SET touched = 1 WHERE tag_id = ? OR (tag_id = ?
+        AND media_id IN (SELECT media_id FROM media_tags WHERE tag_id = ?))')->execute([$source, $target, $source]);
     // A shared target assignment now also represents the source assignment. Preserve it on rule undo.
     $database->prepare('
         DELETE FROM tag_rule_additions WHERE tag_id = ?

@@ -43,6 +43,8 @@ try {
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/external-moves.php';", inlineBundlePhp('external-moves.php'));
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/tags.php';", inlineBundlePhp('tags.php'));
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/tag-rules.php';", inlineBundlePhp('tag-rules.php'));
+    $loader = replaceBundleSource($loader, "require_once __DIR__ . '/bulk-editing.php';", inlineBundlePhp('bulk-editing.php'));
+    $loader = replaceBundleSource($loader, "require_once __DIR__ . '/bulk-moves.php';", inlineBundlePhp('bulk-moves.php'));
     $router = replaceBundleSource($router, "require_once __DIR__ . '/loader.php';", $loader);
     $router = replaceBundleSource($router, "require_once __DIR__ . '/manage-tags.php';", inlineBundlePhp('manage-tags.php'));
     $router = replaceBundleSource($router, "    require __DIR__ . '/index.php';", inlineBundlePhp('index.php') . "\n<?php");

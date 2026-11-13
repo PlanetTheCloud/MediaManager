@@ -5,6 +5,8 @@ require_once __DIR__ . '/search.php';
 require_once __DIR__ . '/external-moves.php';
 require_once __DIR__ . '/tags.php';
 require_once __DIR__ . '/tag-rules.php';
+require_once __DIR__ . '/bulk-editing.php';
+require_once __DIR__ . '/bulk-moves.php';
 
 const ITEMS_PER_PAGE = 15;
 const MEDIA_TYPES = [
@@ -190,6 +192,9 @@ function recoverMediaRelocation(string $directory): ?string
         $source = resolveLibraryPath($directory, $move['source']);
         try {
             $target = mediaMoveDestination($directory, $move['destination']);
+            if ($move['bulk_item'] !== null) {
+                checkPendingBulkMoveFolder($database, $directory, (int) $move['bulk_item'], $move['destination']);
+            }
         } catch (DomainException $error) {
             // The destination may be temporarily unavailable. Preserve the intent.
             throw new DomainException('Restore the destination folder and reload to finish the pending move.');
@@ -224,6 +229,7 @@ function recoverMediaRelocation(string $directory): ?string
             $error = 'The original file could not be located to complete the move.';
         }
 
+        $identity = null;
         if ($error === null) {
             $identity = mediaFileIdentity(resolveLibraryPath($directory, $move['destination']));
             if ($identity === null || !sameMediaFile($identity, $move)) {
@@ -234,12 +240,15 @@ function recoverMediaRelocation(string $directory): ?string
                 recordMediaIdentity($database, $record['id'], $move['destination'], $identity);
             }
         }
+        if ($move['bulk_item'] !== null) {
+            finishBulkMoveItem($database, (int) $move['bulk_item'], $identity, $error);
+        }
         $database->exec('DELETE FROM media_relocation WHERE id = 1');
         return $error;
     });
 }
 
-function moveLibraryMediaFile(string $directory, string $file, string $folder, string $name): string
+function validateMediaMoveName(string $file, string $name): void
 {
     $invalidName = $name === '' || strpbrk($name, "\0/\\:") !== false || preg_match('/[\x00-\x1F\x7F]/', $name);
     if (PHP_OS_FAMILY === 'Windows') {
@@ -250,6 +259,11 @@ function moveLibraryMediaFile(string $directory, string $file, string $folder, s
         || strcasecmp(pathinfo($name, PATHINFO_EXTENSION), pathinfo($file, PATHINFO_EXTENSION)) !== 0) {
         throw new DomainException('Enter a valid filename with the original extension.');
     }
+}
+
+function moveLibraryMediaFile(string $directory, string $file, string $folder, string $name, ?array $bulkItem = null): string
+{
+    validateMediaMoveName($file, $name);
     // Validate the user-supplied folder before dirname() can normalize it.
     if (resolveLibraryPath($directory, $folder) === null) {
         throw new DomainException('Choose an existing destination folder inside the media library.');
@@ -260,7 +274,10 @@ function moveLibraryMediaFile(string $directory, string $file, string $folder, s
         return $file;
     }
 
-    $identity = writeMediaMetadata($directory, static function (PDO $database) use ($directory, $file, $destination): array {
+    $identity = writeMediaMetadata($directory, static function (PDO $database) use ($directory, $file, $destination, $bulkItem): ?array {
+        if ($bulkItem !== null && !requireBulkMoveItem($database, $directory, $bulkItem, $file, $destination)) {
+            return null;
+        }
         requireNoPendingMediaRelocation($database);
         $source = requireLibraryMediaFile($directory, $file);
         $target = mediaMoveDestination($directory, $destination);
@@ -279,10 +296,16 @@ function moveLibraryMediaFile(string $directory, string $file, string $folder, s
         requireMatchingMediaRecord($database, $file, $identity);
 
         // Commit the intent before touching either file so a restart can finish the move.
-        $statement = $database->prepare('INSERT INTO media_relocation VALUES (1, ?, ?, ?, ?)');
-        $statement->execute([$file, $destination, $identity['device'], $identity['inode']]);
+        if ($bulkItem !== null && $identity !== $bulkItem['identity']) {
+            throw new DomainException('The source file changed after preview.');
+        }
+        $statement = $database->prepare('INSERT INTO media_relocation (id, source, destination, device, inode, bulk_item) VALUES (1, ?, ?, ?, ?, ?)');
+        $statement->execute([$file, $destination, $identity['device'], $identity['inode'], $bulkItem['id'] ?? null]);
         return $identity;
     });
+    if ($identity === null) {
+        return $destination;
+    }
     $error = recoverMediaRelocation($directory);
     clearstatcache(true);
     if ($error !== null || !hasMediaFileIdentity(resolveLibraryPath($directory, $destination), $identity)) {

@@ -1,7 +1,7 @@
 <?php
 
 const MEDIA_METADATA_FILENAME = 'mediamanager.sqlite';
-const MEDIA_METADATA_SCHEMA_VERSION = 5;
+const MEDIA_METADATA_SCHEMA_VERSION = 6;
 const MEDIA_METADATA_MAX_TAGS = 100;
 const MEDIA_METADATA_MAX_TAG_LENGTH = 100;
 const EMPTY_MEDIA_METADATA = [
@@ -151,6 +151,9 @@ function initializeMediaMetadataSchema(PDO $database): void
     if ($version < 5) {
         initializeTagRules($database);
     }
+    if ($version < 6) {
+        initializeBulkEditing($database);
+    }
     $database->exec('PRAGMA user_version = ' . MEDIA_METADATA_SCHEMA_VERSION);
 }
 
@@ -291,10 +294,12 @@ function writeMediaMetadata(string $libraryDirectory, callable $write, ?callable
 
 function pendingMediaRelocation(PDO $database): ?array
 {
-    if (getMediaMetadataSchemaVersion($database) < 2) {
+    $version = getMediaMetadataSchemaVersion($database);
+    if ($version < 2) {
         return null;
     }
-    $relocation = $database->query('SELECT source, destination, device, inode FROM media_relocation WHERE id = 1')->fetch();
+    $bulkItem = $version >= 6 ? 'bulk_item' : 'NULL AS bulk_item';
+    $relocation = $database->query("SELECT source, destination, device, inode, $bulkItem FROM media_relocation WHERE id = 1")->fetch();
     return $relocation === false ? null : $relocation;
 }
 
@@ -311,6 +316,7 @@ function removeEmptyMediaMetadata(PDO $database, string $mediaPath): void
         DELETE FROM media_metadata
         WHERE path = ? AND favorite = 0 AND rating IS NULL AND marked_for_deletion = 0
             AND NOT EXISTS (SELECT 1 FROM media_tags WHERE media_id = media_metadata.id)
+            AND NOT EXISTS (SELECT 1 FROM bulk_undo_fields WHERE media_id = media_metadata.id)
     ');
     $statement->execute([$mediaPath]);
 }

@@ -56,6 +56,9 @@ function renderGalleryCards(array $files, array $annotations, array $filters, ar
         <div class="col-sm-6 col-lg-4" id="<?= $id ?>" data-file="<?= escapeHtml($file) ?>">
             <article class="card h-100">
                 <div class="card-body">
+                    <label class="form-check mb-2" data-bulk-control hidden>
+                        <input type="checkbox" class="form-check-input" data-bulk-select aria-label="Select <?= escapeHtml($file) ?>"> Select clip
+                    </label>
                     <p class="text-break mb-2"><?= escapeHtml($file) ?></p>
                     <?php $isGif = mediaType($file) === 'image/gif'; ?>
                     <a class="gallery-tile" href="<?= escapeHtml($mediaUrl) ?>" data-open-media="<?= $isGif ? 'image' : 'video' ?>" aria-label="Open <?= escapeHtml($file) ?>">
@@ -66,9 +69,7 @@ function renderGalleryCards(array $files, array $annotations, array $filters, ar
                         <?php } ?>
                     </a>
                     <div class="d-flex flex-wrap gap-1 mt-2">
-                        <?php if ($item['marked_for_deletion']) { ?>
-                            <span class="badge text-bg-danger">Marked for deletion</span>
-                        <?php } ?>
+                        <span class="badge text-bg-danger" data-mark-badge <?= $item['marked_for_deletion'] ? '' : 'hidden' ?>>Marked for deletion</span>
                         <span class="badge text-bg-warning" data-favorite-badge <?= $item['favorite'] ? '' : 'hidden' ?>>Favorite</span>
                         <span class="badge text-bg-secondary" data-rating-badge role="img" aria-label="<?= $item['rating'] ?? 0 ?> out of 5 stars" <?= $item['rating'] === null ? 'hidden' : '' ?>><?= str_repeat('★', $item['rating'] ?? 0) ?></span>
                         <span class="d-inline-flex flex-wrap gap-1" data-tag-badges>
@@ -121,7 +122,7 @@ function renderGalleryCards(array $files, array $annotations, array $filters, ar
                         </form>
                         <form class="mt-2" action="<?= escapeHtml($currentUrl) ?>" method="post">
                             <input type="hidden" name="file" value="<?= escapeHtml($file) ?>">
-                            <button class="btn btn-sm btn-outline-danger" type="submit" name="action" value="<?= $item['marked_for_deletion'] ? 'unmark' : 'mark' ?>">
+                            <button class="btn btn-sm btn-outline-danger" data-card-mark type="submit" name="action" value="<?= $item['marked_for_deletion'] ? 'unmark' : 'mark' ?>">
                                 <?= $item['marked_for_deletion'] ? 'Clear deletion mark' : 'Mark for deletion' ?>
                             </button>
                         </form>
@@ -136,6 +137,66 @@ function renderGalleryCards(array $files, array $annotations, array $filters, ar
 function parseGalleryTags(string $tags): array
 {
     return array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $tags)), static fn ($tag) => $tag !== ''));
+}
+
+function handleGalleryBulkEdit(string $directory, array $filters, array $terms): void
+{
+    try {
+        $input = json_decode($_POST['payload'] ?? '', true, flags: JSON_THROW_ON_ERROR);
+        if (!is_array($input)) {
+            throw new InvalidArgumentException('Invalid bulk action.');
+        }
+        $action = $_POST['action'];
+        $scope = $filters['folder'] ?? '';
+        $token = $input['token'] ?? '';
+        if (!is_string($token)) {
+            throw new InvalidArgumentException('Invalid bulk operation token.');
+        }
+        if ($action === 'bulk-preview') {
+            sendGalleryJson(publicBulkPreview(readBulkPreview($directory, $scope, bulkOperation($input))));
+            return;
+        }
+        if ($action === 'bulk-resume') {
+            sendGalleryJson(['move' => runBulkMove($directory, $token)]);
+            return;
+        }
+        $result = $action === 'bulk-apply'
+            ? applyBulkEdit($directory, $scope, bulkOperation($input), $token)
+            : undoBulkEdit($directory, $token);
+        if (isset($result['batch'])) {
+            $result['move'] = isset($result['repeated'])
+                ? bulkMoveStatus(openMediaMetadataDatabase($directory), $result['batch'])
+                : runBulkMove($directory, $result['batch']);
+            sendGalleryJson($result);
+            return;
+        }
+        $paths = $result['paths'];
+        $annotations = getMediaMetadata($directory, $paths);
+        $updates = [];
+        foreach ($paths as $path) {
+            try {
+                requireLibraryMediaFile($directory, $path);
+            } catch (DomainException $error) {
+                continue;
+            }
+            $item = $annotations[$path] ?? EMPTY_MEDIA_METADATA;
+            $matchesView = inMediaScanScope($scope, $path) && gallerySearchMatches($terms, $path, $item);
+            unset($item['tag_keys'], $item['tag_aliases']);
+            $updates[] = [
+                'path' => $path, 'item' => $item, 'matchesView' => $matchesView,
+                'tagLinks' => array_map(static fn ($tag) => galleryTagUrl($filters, $terms, $tag), $item['tags']),
+            ];
+        }
+        $result['updates'] = $updates;
+        $result['undo'] = latestBulkUndo(openMediaMetadataDatabase($directory));
+        sendGalleryJson($result);
+    } catch (BulkPreviewChanged $error) {
+        sendGalleryJson(['message' => $error->getMessage(), 'preview' => $error->preview], 409);
+    } catch (DomainException $error) {
+        stopRequest(409, $error->getMessage());
+    } catch (InvalidArgumentException | JsonException $error) {
+        stopRequest(400, $error->getMessage());
+    }
 }
 
 function saveViewerMetadata(string $directory, array $fields): array
@@ -305,6 +366,13 @@ try {
     http_response_code(400);
 }
 try {
+    if ($viewerEdit && in_array($_POST['action'] ?? '', ['bulk-preview', 'bulk-apply', 'bulk-undo', 'bulk-resume'], true)) {
+        if (!is_string($_POST['payload'] ?? null)) {
+            throw new InvalidArgumentException('Invalid bulk action.');
+        }
+        handleGalleryBulkEdit($libraryDirectory, $filters, $terms);
+        return;
+    }
     if (isset($_GET['tag-revision']) && $_SERVER['REQUEST_METHOD'] === 'GET' && !$suggestRequest && !$batchRequest) {
         sendGalleryJson(['revision' => tagCatalogRevision($libraryDirectory)]);
         return;
@@ -386,6 +454,10 @@ $notice = match ($_GET['notice'] ?? '') {
     'unmark' => 'Deletion mark cleared.',
     default => null,
 };
+$bulkDatabase = openMediaMetadataDatabase($libraryDirectory);
+$bulkUndo = latestBulkUndo($bulkDatabase);
+$bulkMoves = unfinishedBulkMoves($bulkDatabase);
+unset($bulkDatabase);
 ?>
 <!doctype html>
 <html lang="en" data-bs-theme="dark">
@@ -489,6 +561,42 @@ $notice = match ($_GET['notice'] ?? '') {
                 <?php } ?>
             </datalist>
         <?php } ?>
+        <section id="bulk-tools" class="mb-3" aria-label="Bulk editing" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <button type="button" id="bulk-toggle" class="btn btn-outline-light btn-sm" aria-pressed="false" <?= !$files ? 'hidden' : '' ?>>Select</button>
+                <button type="button" id="bulk-undo" class="btn btn-outline-light btn-sm" data-token="<?= escapeHtml($bulkUndo ?? '') ?>" <?= $bulkUndo === null ? 'hidden' : '' ?>>Undo last bulk edit</button>
+                <div id="bulk-recovery" class="d-flex flex-wrap gap-2">
+                    <?php foreach ($bulkMoves as $batch) { ?>
+                        <button type="button" class="btn btn-outline-warning btn-sm" data-bulk-resume="<?= escapeHtml($batch) ?>">Resume move batch</button>
+                    <?php } ?>
+                </div>
+            </div>
+            <form id="bulk-form" class="mt-2" hidden>
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                    <span id="bulk-count" role="status">0 selected</span>
+                    <button type="button" id="bulk-loaded" class="btn btn-sm btn-outline-light">Select loaded results</button>
+                    <label for="bulk-action" class="visually-hidden">Bulk action</label>
+                    <select id="bulk-action" class="form-select form-select-sm w-auto">
+                        <option value="add-tags">Add tags</option>
+                        <option value="remove-tags">Remove tags</option>
+                        <option value="mark">Mark for deletion</option>
+                        <option value="unmark">Clear deletion marks</option>
+                        <option value="move">Move to folder</option>
+                    </select>
+                    <button id="bulk-preview" class="btn btn-sm btn-primary" type="submit" disabled>Preview</button>
+                </div>
+                <div id="bulk-tag-field" class="mt-2">
+                    <label for="bulk-tags" class="form-label">Tags (one per line)</label>
+                    <textarea id="bulk-tags" class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+                <div id="bulk-folder-field" class="mt-2" hidden>
+                    <label for="bulk-folder" class="form-label">Destination folder</label>
+                    <input id="bulk-folder" class="form-control form-control-sm" list="move-folders" placeholder="Library root">
+                </div>
+            </form>
+            <p id="bulk-status" class="mt-2 mb-0" role="status" hidden></p>
+            <div id="bulk-move-report" class="mt-2" hidden></div>
+        </section>
         <div class="row g-3" id="gallery-grid" data-view-url="<?= escapeHtml(galleryUrl($filters)) ?>" data-cursor="<?= escapeHtml($cursor ?? '') ?>" data-tag-revision="<?= escapeHtml($tagRevision) ?>">
             <?php renderGalleryCards($files, $annotations, $filters, $terms); ?>
         </div>
@@ -509,6 +617,15 @@ $notice = match ($_GET['notice'] ?? '') {
             <a class="btn btn-outline-light" href="<?= escapeHtml(galleryUrl($filters, ['page' => null])) ?>" id="gallery-refresh" hidden>Refresh results</a>
         </div>
     </main>
+    <dialog id="bulk-review" aria-labelledby="bulk-review-title" class="rounded border p-3">
+        <h2 class="h5" id="bulk-review-title" tabindex="-1"></h2>
+        <p id="bulk-review-counts" role="status"></p>
+        <ul id="bulk-review-files" class="list-group mb-3 overflow-auto"></ul>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary" id="bulk-apply">Apply</button>
+            <button type="button" class="btn btn-outline-light" id="bulk-close">Close</button>
+        </div>
+    </dialog>
     <dialog id="media-viewer" aria-labelledby="viewer-title">
         <div class="viewer-layout">
             <header class="viewer-toolbar">

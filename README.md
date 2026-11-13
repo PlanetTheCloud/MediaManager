@@ -47,6 +47,8 @@ The `loader.php` is the main logic file where all the processing happens. At the
 │   ├── video-js.css
 │   └── video.min.js
 ├── build.php
+├── bulk-editing.php
+├── bulk-moves.php
 ├── external-moves.php
 ├── index.php
 ├── loader.php
@@ -92,6 +94,12 @@ Click a tag on a card to add it to your search, or click a filter chip to remove
 The grid loads more results as you scroll. Use **Load more** to request a batch manually or retry a failed load. Numbered pages are available with JavaScript disabled.
 
 Open a tile to view it and use **Fullscreen** to expand the viewer. Use the arrow keys to move between clips, **Space** to play or pause, **F** to favorite, **1–5** to rate, **0** to clear the rating, and **T** to edit tags. **Esc** closes the active editor or viewer. Closing the viewer returns you to the opening card.
+
+## Bulk editing
+
+Choose **Select**, then check individual clips or use **Select loaded results**. You can keep selecting as you scroll. Choose an action and use **Preview** to review the files before applying it.
+
+**Undo last bulk edit** reverses the latest batch of tag or deletion-mark changes, skipping assignments or marks that were edited afterward. For moves, the preview lists blocked files and leaves them selected. If a move stops partway through, use **Resume move batch** to continue from the last completed file.
 
 ## Favorites, ratings, and tags
 

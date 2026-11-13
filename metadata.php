@@ -1,10 +1,13 @@
 <?php
 
 const MEDIA_METADATA_FILENAME = 'mediamanager.sqlite';
-const MEDIA_METADATA_SCHEMA_VERSION = 3;
+const MEDIA_METADATA_SCHEMA_VERSION = 5;
 const MEDIA_METADATA_MAX_TAGS = 100;
 const MEDIA_METADATA_MAX_TAG_LENGTH = 100;
-const EMPTY_MEDIA_METADATA = ['favorite' => false, 'rating' => null, 'marked_for_deletion' => false, 'tags' => []];
+const EMPTY_MEDIA_METADATA = [
+    'favorite' => false, 'rating' => null, 'marked_for_deletion' => false,
+    'tags' => [], 'inherited_tags' => [], 'tag_keys' => [], 'tag_aliases' => [],
+];
 
 class MediaLibraryUnavailable extends RuntimeException
 {
@@ -108,37 +111,46 @@ function initializeMediaMetadataSchema(PDO $database): void
         );
     }
 
-    $database->exec(<<<'SQL'
-        ALTER TABLE media_tags RENAME TO old_media_tags;
-        ALTER TABLE media_metadata RENAME TO old_media_metadata;
+    if ($version < 3) {
+        $database->exec(<<<'SQL'
+            ALTER TABLE media_tags RENAME TO old_media_tags;
+            ALTER TABLE media_metadata RENAME TO old_media_metadata;
 
-        CREATE TABLE media_metadata (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            path TEXT NOT NULL UNIQUE COLLATE BINARY,
-            favorite INTEGER NOT NULL DEFAULT 0 CHECK (favorite IN (0, 1)),
-            rating INTEGER CHECK (rating BETWEEN 1 AND 5),
-            marked_for_deletion INTEGER NOT NULL DEFAULT 0 CHECK (marked_for_deletion IN (0, 1)),
-            device INTEGER,
-            inode INTEGER,
-            size INTEGER,
-            modified INTEGER
-        );
-        INSERT INTO media_metadata (path, favorite, rating, marked_for_deletion)
-            SELECT path, favorite, rating, marked_for_deletion FROM old_media_metadata;
+            CREATE TABLE media_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE COLLATE BINARY,
+                favorite INTEGER NOT NULL DEFAULT 0 CHECK (favorite IN (0, 1)),
+                rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+                marked_for_deletion INTEGER NOT NULL DEFAULT 0 CHECK (marked_for_deletion IN (0, 1)),
+                device INTEGER,
+                inode INTEGER,
+                size INTEGER,
+                modified INTEGER
+            );
+            INSERT INTO media_metadata (path, favorite, rating, marked_for_deletion)
+                SELECT path, favorite, rating, marked_for_deletion FROM old_media_metadata;
 
-        CREATE TABLE media_tags (
-            media_id INTEGER NOT NULL REFERENCES media_metadata(id) ON DELETE CASCADE,
-            tag_id INTEGER NOT NULL REFERENCES tags(id),
-            PRIMARY KEY (media_id, tag_id)
+            CREATE TABLE media_tags (
+                media_id INTEGER NOT NULL REFERENCES media_metadata(id) ON DELETE CASCADE,
+                tag_id INTEGER NOT NULL REFERENCES tags(id),
+                PRIMARY KEY (media_id, tag_id)
+            );
+            INSERT INTO media_tags (media_id, tag_id)
+                SELECT media_metadata.id, old_media_tags.tag_id FROM old_media_tags
+                JOIN media_metadata ON media_metadata.path = old_media_tags.media_path;
+            DROP TABLE old_media_tags;
+            DROP TABLE old_media_metadata;
+            CREATE INDEX media_tags_tag_id ON media_tags (tag_id);
+            SQL
         );
-        INSERT INTO media_tags (media_id, tag_id)
-            SELECT media_metadata.id, old_media_tags.tag_id FROM old_media_tags
-            JOIN media_metadata ON media_metadata.path = old_media_tags.media_path;
-        DROP TABLE old_media_tags;
-        DROP TABLE old_media_metadata;
-        CREATE INDEX media_tags_tag_id ON media_tags (tag_id);
-        SQL
-    );
+    }
+
+    if ($version < 4) {
+        initializeTagRelationships($database);
+    }
+    if ($version < 5) {
+        initializeTagRules($database);
+    }
     $database->exec('PRAGMA user_version = ' . MEDIA_METADATA_SCHEMA_VERSION);
 }
 
@@ -215,7 +227,8 @@ function readMediaMetadata(PDO $database, array $mediaPaths, ?string $libraryDir
         foreach (array_chunk(array_unique($mediaPaths), 400) as $batch) {
             $parameters = implode(', ', array_fill(0, count($batch), '?'));
             $statement = $database->prepare("
-                SELECT media_metadata.path, favorite, rating, $deletionMark AS marked_for_deletion, $identity, tags.name AS tag
+                SELECT media_metadata.path, favorite, rating, $deletionMark AS marked_for_deletion, $identity,
+                    tags.id AS tag_id, tags.name AS tag
                 FROM media_metadata
                 LEFT JOIN media_tags ON $tagJoin
                 LEFT JOIN tags ON tags.id = media_tags.tag_id
@@ -232,26 +245,36 @@ function readMediaMetadata(PDO $database, array $mediaPaths, ?string $libraryDir
                 if (isset($excluded[$path])) {
                     continue;
                 }
-                $metadata[$path] = $metadata[$path] ?? [
+                $metadata[$path] ??= [
                     'favorite' => (bool) $row['favorite'],
                     'rating' => $row['rating'] === null ? null : (int) $row['rating'],
                     'marked_for_deletion' => (bool) $row['marked_for_deletion'],
-                    'tags' => [],
-                ];
+                ] + EMPTY_MEDIA_METADATA;
                 if ($row['tag'] !== null) {
-                    $metadata[$path]['tags'][] = $row['tag'];
+                    $metadata[$path]['tags'][$row['tag_id']] = $row['tag'];
                 }
             }
+        }
+        if ($metadata) {
+            $catalog = readTagRelationships($database, $version);
+            $ancestors = [];
+            foreach ($metadata as &$item) {
+                resolveMediaTags($item, $catalog, $ancestors);
+            }
+            unset($item);
         }
     }
     return $metadata;
 }
 
-function writeMediaMetadata(string $libraryDirectory, callable $write): mixed
+function writeMediaMetadata(string $libraryDirectory, callable $write, ?callable $validate = null): mixed
 {
     $database = openMediaMetadataDatabase($libraryDirectory, true);
     $database->exec('BEGIN IMMEDIATE');
     try {
+        if ($validate !== null) {
+            $validate($database);
+        }
         initializeMediaMetadataSchema($database);
         $result = $write($database);
         $database->exec('COMMIT');
@@ -383,15 +406,7 @@ function patchMediaMetadata(string $libraryDirectory, string $mediaPath, array $
         }
 
         if ($tags !== null) {
-            $statement = $database->prepare('DELETE FROM media_tags WHERE media_id = ?');
-            $statement->execute([$id]);
-            $createTag = $database->prepare('INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO NOTHING');
-            $attachTag = $database->prepare('INSERT INTO media_tags (media_id, tag_id) SELECT ?, id FROM tags WHERE name = ?');
-            foreach ($tags as $tag) {
-                $createTag->execute([$tag]);
-                $attachTag->execute([$id, $tag]);
-            }
-            $database->exec('DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM media_tags WHERE media_tags.tag_id = tags.id)');
+            replaceDirectMediaTags($database, $id, $tags);
         }
 
         removeEmptyMediaMetadata($database, $mediaPath);

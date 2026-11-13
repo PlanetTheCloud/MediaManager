@@ -3,6 +3,8 @@
 require_once __DIR__ . '/metadata.php';
 require_once __DIR__ . '/search.php';
 require_once __DIR__ . '/external-moves.php';
+require_once __DIR__ . '/tags.php';
+require_once __DIR__ . '/tag-rules.php';
 
 const ITEMS_PER_PAGE = 15;
 const MEDIA_TYPES = [
@@ -348,7 +350,7 @@ function queryMediaGallery(string $directory, array $filters, array $terms): arr
     return [array_values($files), $annotations];
 }
 
-function galleryFingerprint(string $directory, array $filters, array $terms, array $files): string
+function galleryFingerprint(string $directory, array $filters, array $terms, array $files, string $tagRevision): string
 {
     $keys = array_map('gallerySearchTermKey', $terms);
     sort($keys, SORT_STRING);
@@ -358,7 +360,7 @@ function galleryFingerprint(string $directory, array $filters, array $terms, arr
         isset($filters['oldest']) => ['oldest'],
         default => ['filename'],
     };
-    return hash('sha256', serialize([$directory, $filters['folder'] ?? '', $order, $keys]) . "\0" . implode("\0", $files));
+    return hash('sha256', serialize([$directory, $filters['folder'] ?? '', $order, $keys, $tagRevision]) . "\0" . implode("\0", $files));
 }
 
 function nextGalleryCursor(string $fingerprint, array $files, int $offset): ?string
@@ -373,8 +375,9 @@ function loadMediaBatch(string $directory, array $filters, string $cursor, ?arra
         throw new InvalidArgumentException('Invalid gallery cursor.');
     }
     $terms ??= gallerySearchTerms($filters);
+    $tagRevision = tagCatalogRevision($directory);
     [$files, $annotations] = queryMediaGallery($directory, $filters, $terms);
-    $fingerprint = galleryFingerprint($directory, $filters, $terms, $files);
+    $fingerprint = galleryFingerprint($directory, $filters, $terms, $files, $tagRevision);
     if ($parts[1] !== $fingerprint) {
         throw new DomainException('The results have changed. Refresh to see the current order.');
     }
@@ -397,14 +400,15 @@ function loadMediaBatch(string $directory, array $filters, string $cursor, ?arra
 function loadMediaGallery(string $directory, array $filters, ?array $terms = null): array
 {
     $terms ??= gallerySearchTerms($filters);
+    $tagRevision = tagCatalogRevision($directory);
     [$files, $annotations] = queryMediaGallery($directory, $filters, $terms);
     $pageCount = (int) ceil(count($files) / ITEMS_PER_PAGE);
     $page = max(1, min((int) ($filters['page'] ?? 1), $pageCount));
     $offset = ($page - 1) * ITEMS_PER_PAGE;
     $pageFiles = array_slice($files, $offset, ITEMS_PER_PAGE);
     $annotations ??= getMediaMetadata($directory, $pageFiles);
-    $cursor = nextGalleryCursor(galleryFingerprint($directory, $filters, $terms, $files), $files, $offset);
-    return [$pageFiles, gatherMediaFolders($directory), $page, $pageCount, $annotations, $cursor];
+    $cursor = nextGalleryCursor(galleryFingerprint($directory, $filters, $terms, $files, $tagRevision), $files, $offset);
+    return [$pageFiles, gatherMediaFolders($directory), $page, $pageCount, $annotations, $cursor, $tagRevision];
 }
 
 function galleryTagSuggestions(string $directory, array $filters, array $terms): array
@@ -413,10 +417,14 @@ function galleryTagSuggestions(string $directory, array $filters, array $terms):
     $annotations ??= getMediaMetadata($directory, $files);
     $suggestions = [];
     foreach ($files as $file) {
-        foreach ($annotations[$file]['tags'] ?? [] as $tag) {
+        $item = $annotations[$file] ?? EMPTY_MEDIA_METADATA;
+        foreach ([...$item['tags'], ...$item['inherited_tags']] as $tag) {
             if (!isset($suggestions[$tag])) {
                 $term = ['field' => 'tag', 'value' => $tag, 'negated' => false];
-                $suggestions[$tag] = ['tag' => $tag, 'term' => formatGallerySearchTerm($term), 'count' => 0];
+                $suggestions[$tag] = [
+                    'tag' => $tag, 'term' => formatGallerySearchTerm($term), 'count' => 0,
+                    'aliases' => $item['tag_aliases'][$tag] ?? [],
+                ];
             }
             $suggestions[$tag]['count']++;
         }

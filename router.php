@@ -7,6 +7,11 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Cross-Origin-Resource-Policy: same-origin');
 
+function escapeHtml(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
 function sendGalleryJson(array $payload, int $status = 200): void
 {
     http_response_code($status);
@@ -87,7 +92,7 @@ if (!preg_match('/^(127\.0\.0\.1|localhost)(:[0-9]+)?$/Di', $host)) {
 $route = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'POST') {
-    if (!in_array($route, ['/', '/index.php'], true)) {
+    if (!in_array($route, ['/', '/index.php', '/tags'], true)) {
         stopRequest(405, 'Method not allowed.');
     }
     if (($_SERVER['HTTP_ORIGIN'] ?? '') !== 'http://' . $host) {
@@ -114,13 +119,18 @@ if (isset($assets[$route])) {
     return;
 }
 
-if (!in_array($route, ['/', '/index.php', '/media'], true)) {
+if (!in_array($route, ['/', '/index.php', '/media', '/tags'], true)) {
     stopRequest(404, 'Page not found.');
 }
 
 require_once __DIR__ . '/loader.php';
+require_once __DIR__ . '/manage-tags.php';
 try {
     $libraryDirectory = getMediaLibraryDirectory();
+    if ($route === '/tags') {
+        handleTagManager($libraryDirectory);
+        return;
+    }
     if ($route === '/media') {
         if (!is_string($_GET['file'] ?? null)) {
             stopRequest(400, 'Invalid media file.');

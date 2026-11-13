@@ -128,7 +128,7 @@ function gallerySearchMatches(array $terms, string $file, array $item): bool
         $value = $term['value'];
         $matches = match ($term['field']) {
             'file' => str_contains($file, $value),
-            'tag' => in_array(strtolower($value), array_map('strtolower', $item['tags']), true),
+            'tag' => isset($item['tag_keys'][strtolower($value)]),
             'type' => (mediaType($file) === 'image/gif' ? 'gif' : 'video') === $value,
             'rating' => $item['rating'] !== null && (str_starts_with($value, '>=')
                 ? $item['rating'] >= (int) substr($value, 2) : $item['rating'] === (int) $value),

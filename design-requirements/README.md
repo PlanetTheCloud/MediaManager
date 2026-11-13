@@ -20,7 +20,7 @@ The app controls its own storage and browser profile. Windows can also write to 
 - [ ] **Advanced Booru-style search.** Add OR groups and duration and dimension comparisons.
 - [ ] **Saved views and collections.** Add saved searches, manual collections, an Untagged queue, and an Unrated favorites view. Consider a continuous clips feed for rediscovery.
 - [ ] **Hash-based move review.** Suggest same-size files with matching content hashes within the selected folder and its descendants.
-- [ ] **Tag management.** Rename and merge tags, add aliases and implications, and show inherited tags. Preview folder and filename tagging rules before applying them.
+- [ ] **[Tag management](tag-management.md).** Start with browse, rename, and merge. Add aliases, inherited tags, and previewable tagging rules in later phases.
 - [ ] **Duplicate review.** Compare exact duplicates side by side and evaluate similar-media review once that workflow is useful.
 - [ ] **Optional thumbnails.** Offer an opt-in thumbnail cache under the media library directory if the grid needs it. Show its size and location and provide a clear-cache control.
 

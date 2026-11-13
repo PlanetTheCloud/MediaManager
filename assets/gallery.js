@@ -18,6 +18,8 @@
     const favorite = byId('viewer-favorite');
     const rating = byId('viewer-rating');
     const tags = byId('viewer-tags');
+    const inherited = byId('viewer-inherited');
+    const inheritedTags = byId('viewer-inherited-tags');
     const editTags = byId('viewer-edit-tags');
     const tagEditor = byId('viewer-tag-editor');
     const tagInput = byId('viewer-tag-input');
@@ -217,6 +219,9 @@
         favorite.textContent = details.favorite.checked ? 'Favorited' : 'Favorite';
         rating.value = details.rating.value;
         renderTags(tags, details.tags.value.split('\n').filter(Boolean));
+        const inheritedNames = Array.from(selected.querySelector('[data-inherited-tags]').children, badge => badge.textContent);
+        renderTags(inheritedTags, inheritedNames);
+        inherited.hidden = inheritedNames.length === 0;
         for (const control of [favorite, rating, saveTags]) {
             control.setAttribute('aria-disabled', String(saving));
         }
@@ -311,6 +316,7 @@
         stars.textContent = '★'.repeat(item.rating ?? 0);
         stars.setAttribute('aria-label', `${item.rating ?? 0} out of 5 stars`);
         renderTags(card.querySelector('[data-tag-badges]'), item.tags, tagLinks);
+        renderTags(card.querySelector('[data-inherited-tags]'), item.inherited_tags);
     }
 
     async function saveViewerChange(action, value) {
@@ -510,6 +516,22 @@
     });
 
     document.addEventListener('gallery:library-unavailable', clearUnavailableGallery);
+    document.addEventListener('visibilitychange', async () => {
+        if (document.hidden || stale || inactive) {
+            return;
+        }
+        try {
+            const response = await fetch('/?tag-revision', { signal: requests.signal });
+            if (!showUnavailable(response) && response.ok && !inactive && !stale) {
+                const { revision } = await response.json();
+                if (!inactive && !stale && revision !== grid.dataset.tagRevision) {
+                    markViewStale();
+                }
+            }
+        } catch {
+            // Retry when the tab becomes visible again.
+        }
+    });
     window.addEventListener('pagehide', stopBrowsing);
     window.addEventListener('pageshow', event => {
         if (event.persisted) {

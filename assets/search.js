@@ -83,10 +83,14 @@
     function renderSuggestions(draft) {
         highlight(-1);
         options = [];
-        for (const entry of suggestions) {
-            const name = asciiLower(entry.tag);
+        const matchesPrefix = spelling => {
+            const name = asciiLower(spelling);
             const separator = name.indexOf(':');
-            if (name.startsWith(draft.prefix) || (!draft.prefix.includes(':') && separator !== -1 && name.slice(separator + 1).startsWith(draft.prefix))) {
+            return name.startsWith(draft.prefix)
+                || (!draft.prefix.includes(':') && separator !== -1 && name.slice(separator + 1).startsWith(draft.prefix));
+        };
+        for (const entry of suggestions) {
+            if ([entry.tag, ...entry.aliases].some(matchesPrefix)) {
                 options.push(entry);
                 if (options.length === 20) {
                     break;

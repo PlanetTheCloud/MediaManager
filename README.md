@@ -50,9 +50,12 @@ The `loader.php` is the main logic file where all the processing happens. At the
 ├── external-moves.php
 ├── index.php
 ├── loader.php
+├── manage-tags.php
 ├── metadata.php
 ├── router.php
-└── search.php
+├── search.php
+├── tag-rules.php
+└── tags.php
 ```
 
 ## Dependencies
@@ -95,6 +98,14 @@ Open a tile to view it and use **Fullscreen** to expand the viewer. Use the arro
 Open **Edit details** on a card. Check **Favorite**, choose a rating from one to five stars or **Unrated**, and enter one tag per line. Tags can use a namespace such as `subject:train`. Click **Save** to apply the edits. Clicking a tag on a card filters the gallery by that tag.
 
 The first edit creates `mediamanager.sqlite` directly in the media library directory. SQLite may create temporary journal sidecars next to it. The app stores edits against the file's path relative to that directory.
+
+### Manage tags
+
+Open **Manage tags** to browse library-wide saved assignments, including clips awaiting reconnection. Click a tag to find its clips in the gallery. Use **Edit** to preview renames and merges or to manage aliases and parents. Renames and merges keep the old spelling as an alias by default. Aliases work in searches and exclusions. A clip also matches its tag's ancestors. The viewer lists inherited tags separately, and **Edit tags** changes its direct assignments.
+
+Under **Tagging rules**, enter a folder, a case-sensitive filename fragment, and the tags to add. **Preview draft** checks the matches before you save the rule. Open **Preview saved rule** to review matches in the folder and its descendants before applying. **Undo application** removes the run's additions that still exist. A tag you remove and later re-add manually is preserved.
+
+Tag relationships, rules, and undo records are stored in the library's SQLite database. Opening the manager reads the catalog. A rule preview scans its selected folder without saving the scan results.
 
 ## Move, rename, and mark for deletion
 

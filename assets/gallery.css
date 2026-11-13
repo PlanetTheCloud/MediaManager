@@ -116,6 +116,10 @@ html.viewer-open {
     margin-top: .5rem;
 }
 
+.viewer-details [hidden] {
+    display: none;
+}
+
 .viewer-details [aria-disabled="true"] {
     opacity: .65;
 }

@@ -5,11 +5,6 @@ if (!isset($libraryDirectory)) {
     exit('Start MediaManager with the command in the README.');
 }
 
-function escapeHtml(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
 function galleryUrl(array $filters, array $changes = []): string
 {
     $parameters = array_filter(array_replace($filters, $changes), static fn ($value) => $value !== null);
@@ -79,6 +74,11 @@ function renderGalleryCards(array $files, array $annotations, array $filters, ar
                         <span class="d-inline-flex flex-wrap gap-1" data-tag-badges>
                             <?php foreach ($item['tags'] as $tag) { ?>
                                 <a class="badge text-bg-secondary text-decoration-none" href="<?= escapeHtml(galleryTagUrl($filters, $terms, $tag)) ?>"><?= escapeHtml($tag) ?></a>
+                            <?php } ?>
+                        </span>
+                        <span data-inherited-tags hidden>
+                            <?php foreach ($item['inherited_tags'] as $tag) { ?>
+                                <span><?= escapeHtml($tag) ?></span>
                             <?php } ?>
                         </span>
                     </div>
@@ -305,6 +305,10 @@ try {
     http_response_code(400);
 }
 try {
+    if (isset($_GET['tag-revision']) && $_SERVER['REQUEST_METHOD'] === 'GET' && !$suggestRequest && !$batchRequest) {
+        sendGalleryJson(['revision' => tagCatalogRevision($libraryDirectory)]);
+        return;
+    }
     $error = $searchError ?? recoverMediaRelocation($libraryDirectory);
     if ($error !== null && $jsonRequest) {
         stopRequest(409, $error);
@@ -333,9 +337,11 @@ try {
     }
     if ($viewerEdit) {
         $item = saveViewerMetadata($libraryDirectory, $_POST);
+        $matchesView = gallerySearchMatches($terms, $_POST['file'], $item);
+        unset($item['tag_keys'], $item['tag_aliases']);
         sendGalleryJson([
             'item' => $item,
-            'matchesView' => gallerySearchMatches($terms, $_POST['file'], $item),
+            'matchesView' => $matchesView,
             'tagLinks' => array_map(static fn ($tag) => galleryTagUrl($filters, $terms, $tag), $item['tags']),
         ]);
         return;
@@ -364,9 +370,9 @@ if ($error === null && isset($filters['random']) && !isset($filters['seed'])) {
     return;
 }
 
-[$files, $folders, $page, $pageCount, $annotations, $cursor] = $searchError === null
+[$files, $folders, $page, $pageCount, $annotations, $cursor, $tagRevision] = $searchError === null
     ? loadMediaGallery($libraryDirectory, $filters, $terms)
-    : [[], gatherMediaFolders($libraryDirectory), 1, 0, [], null];
+    : [[], gatherMediaFolders($libraryDirectory), 1, 0, [], null, ''];
 $searchText = $legacyFilters && $searchError === null ? formatGallerySearch($terms) : ($filters['query'] ?? '');
 $selectedFolder = $filters['folder'] ?? '';
 $selectedDirectory = $selectedFolder === '' ? null : resolveLibraryPath($libraryDirectory, $selectedFolder);
@@ -444,6 +450,7 @@ $notice = match ($_GET['notice'] ?? '') {
             </a>
         </div>
         <div class="container d-flex flex-wrap align-items-start gap-2 mt-2">
+            <a class="btn btn-sm btn-outline-secondary" href="<?= escapeHtml(tagManagerUrl(['folder' => $selectedFolder])) ?>">Manage tags</a>
             <form method="post" action="<?= escapeHtml(galleryUrl($filters, ['page' => null])) ?>">
                 <button class="btn btn-sm btn-outline-secondary" name="action" value="scan-external" type="submit" aria-describedby="scan-scope">Scan for moves</button>
                 <small class="text-body-secondary" id="scan-scope"><?= escapeHtml($filters['folder'] ?? 'All folders') ?> and subfolders</small>
@@ -482,7 +489,7 @@ $notice = match ($_GET['notice'] ?? '') {
                 <?php } ?>
             </datalist>
         <?php } ?>
-        <div class="row g-3" id="gallery-grid" data-view-url="<?= escapeHtml(galleryUrl($filters)) ?>" data-cursor="<?= escapeHtml($cursor ?? '') ?>">
+        <div class="row g-3" id="gallery-grid" data-view-url="<?= escapeHtml(galleryUrl($filters)) ?>" data-cursor="<?= escapeHtml($cursor ?? '') ?>" data-tag-revision="<?= escapeHtml($tagRevision) ?>">
             <?php renderGalleryCards($files, $annotations, $filters, $terms); ?>
         </div>
         <?php if ($pageCount > 1) { ?>
@@ -529,6 +536,10 @@ $notice = match ($_GET['notice'] ?? '') {
                     </select>
                     <button type="button" class="btn btn-sm btn-outline-light" id="viewer-edit-tags" aria-controls="viewer-tag-editor" aria-expanded="false">Edit tags</button>
                     <span id="viewer-tags" class="viewer-actions" aria-label="Tags"></span>
+                </div>
+                <div class="viewer-actions mt-2" id="viewer-inherited" hidden>
+                    <span class="small">Inherited tags</span>
+                    <span id="viewer-inherited-tags" class="viewer-actions"></span>
                 </div>
                 <form id="viewer-tag-editor" class="mt-2" hidden>
                     <label for="viewer-tag-input" class="form-label">Tags (one per line)</label>

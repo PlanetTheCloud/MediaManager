@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/metadata.php';
 require_once __DIR__ . '/search.php';
+require_once __DIR__ . '/external-moves.php';
 
 const ITEMS_PER_PAGE = 15;
 const MEDIA_TYPES = [
@@ -143,10 +144,24 @@ function mediaMoveDestination(string $directory, string $relative): string
     return rtrim($folder, '/\\') . DIRECTORY_SEPARATOR . basename($relative);
 }
 
-function hasMediaFileIdentity(?string $path, array $identity): bool
+function mediaFileIdentity(?string $path): ?array
 {
     $stat = $path === null ? false : @stat($path);
-    return $stat !== false && $stat['dev'] === (int) $identity['device'] && $stat['ino'] === (int) $identity['inode'];
+    if ($stat === false || ($stat['mode'] & 0170000) !== 0100000) {
+        return null;
+    }
+    return ['device' => $stat['dev'], 'inode' => $stat['ino'], 'size' => $stat['size'], 'modified' => $stat['mtime'], 'links' => $stat['nlink']];
+}
+
+function sameMediaFile(array $file, array $record): bool
+{
+    return $file['inode'] !== 0 && $file['device'] === (int) $record['device'] && $file['inode'] === (int) $record['inode'];
+}
+
+function hasMediaFileIdentity(?string $path, array $identity): bool
+{
+    $file = mediaFileIdentity($path);
+    return $file !== null && sameMediaFile($file, $identity);
 }
 
 function isCaseOnlyMediaRename(string $source, string $target): bool
@@ -208,11 +223,14 @@ function recoverMediaRelocation(string $directory): ?string
         }
 
         if ($error === null) {
-            $database->exec('PRAGMA defer_foreign_keys = ON');
-            $statement = $database->prepare('UPDATE media_metadata SET path = ? WHERE path = ?');
-            $statement->execute([$move['destination'], $move['source']]);
-            $statement = $database->prepare('UPDATE media_tags SET media_path = ? WHERE media_path = ?');
-            $statement->execute([$move['destination'], $move['source']]);
+            $identity = mediaFileIdentity(resolveLibraryPath($directory, $move['destination']));
+            if ($identity === null || !sameMediaFile($identity, $move)) {
+                throw new DomainException('The destination could not be verified. Reload the gallery to finish the move.');
+            }
+            $record = mediaRecordAtPath($database, $move['source']);
+            if ($record !== null) {
+                recordMediaIdentity($database, $record['id'], $move['destination'], $identity);
+            }
         }
         $database->exec('DELETE FROM media_relocation WHERE id = 1');
         return $error;
@@ -252,15 +270,16 @@ function moveLibraryMediaFile(string $directory, string $file, string $folder, s
         if ($statement->fetchColumn() !== false) {
             throw new DomainException('That path already has saved details. Choose a different name or folder.');
         }
-        $stat = @stat($source);
-        if ($stat === false || $stat['ino'] === 0) {
+        $identity = mediaFileIdentity($source);
+        if ($identity === null || $identity['inode'] === 0) {
             throw new DomainException('The filesystem could not identify the original file for a recoverable move.');
         }
+        requireMatchingMediaRecord($database, $file, $identity);
 
         // Commit the intent before touching either file so a restart can finish the move.
         $statement = $database->prepare('INSERT INTO media_relocation VALUES (1, ?, ?, ?, ?)');
-        $statement->execute([$file, $destination, $stat['dev'], $stat['ino']]);
-        return ['device' => $stat['dev'], 'inode' => $stat['ino']];
+        $statement->execute([$file, $destination, $identity['device'], $identity['inode']]);
+        return $identity;
     });
     $error = recoverMediaRelocation($directory);
     clearstatcache(true);

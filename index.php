@@ -188,7 +188,106 @@ function updateGalleryFile(string $directory, array $fields): string
     return $file;
 }
 
+function renderExternalMoveReport(array $filters, ?array $report, ?string $error): void
+{
+    $scope = $filters['folder'] ?? '';
+    $url = galleryUrl($filters, ['page' => null]);
+    ?>
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scan for moves · MediaManager</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <main class="container py-4">
+        <a class="btn btn-outline-light mb-3" href="<?= escapeHtml($url) ?>">Back to gallery</a>
+        <h1 class="h3">Scan for moves</h1>
+        <p>Folder: <strong class="text-break"><?= escapeHtml($scope === '' ? 'All folders' : $scope) ?></strong> and its subfolders</p>
+        <?php if ($error !== null) { ?>
+            <p class="alert alert-danger" role="alert"><?= escapeHtml($error) ?></p>
+        <?php } elseif ($report !== null) { ?>
+            <?php if ($report['unreadable']) { ?>
+                <p class="alert alert-warning" role="alert">The scan was incomplete. No saved details were changed.</p>
+                <ul>
+                    <?php foreach ($report['unreadable'] as $path) { ?>
+                        <li class="text-break"><?= escapeHtml($path) ?></li>
+                    <?php } ?>
+                </ul>
+            <?php } else { ?>
+                <p role="status"><?= $report['reconnected'] ?> reconnected, <?= $report['backfilled'] ?> identities recorded, <?= count($report['review']) ?> to review.</p>
+            <?php } ?>
+            <?php if ($report['skipped']) { ?>
+                <details class="mb-3">
+                    <summary>Skipped paths (<?= count($report['skipped']) ?>)</summary>
+                    <ul>
+                        <?php foreach ($report['skipped'] as $path) { ?>
+                            <li class="text-break"><?= escapeHtml($path) ?></li>
+                        <?php } ?>
+                    </ul>
+                </details>
+            <?php } ?>
+            <?php foreach ($report['review'] as $record) { ?>
+                <?php $candidateList = 'move-candidates-' . $record['id']; ?>
+                <section class="card card-body mb-3">
+                    <h2 class="h6 text-break"><?= escapeHtml($record['path']) ?></h2>
+                    <p><?= escapeHtml($record['reason']) ?></p>
+                    <?php if ($record['candidates']) { ?>
+                        <ul>
+                            <?php foreach ($record['candidates'] as $path) { ?>
+                                <li class="text-break"><?= escapeHtml($path) ?></li>
+                            <?php } ?>
+                        </ul>
+                    <?php } ?>
+                    <form method="post" action="<?= escapeHtml($url) ?>">
+                        <input type="hidden" name="record" value="<?= $record['id'] ?>">
+                        <input type="hidden" name="source" value="<?= escapeHtml($record['path']) ?>">
+                        <label class="form-label" for="move-target-<?= $record['id'] ?>">File path relative to the library</label>
+                        <input class="form-control mb-2" id="move-target-<?= $record['id'] ?>" name="destination" list="<?= $candidateList ?>" required>
+                        <datalist id="<?= $candidateList ?>">
+                            <?php foreach ($record['candidates'] as $path) { ?>
+                                <option value="<?= escapeHtml($path) ?>"></option>
+                            <?php } ?>
+                        </datalist>
+                        <button class="btn btn-outline-light" name="action" value="reconnect-external" type="submit">Reconnect</button>
+                    </form>
+                </section>
+            <?php } ?>
+        <?php } else { ?>
+            <p role="status">Saved details reconnected.</p>
+        <?php } ?>
+        <form method="post" action="<?= escapeHtml($url) ?>">
+            <button class="btn btn-outline-light" name="action" value="scan-external" type="submit">Scan again</button>
+        </form>
+    </main>
+</body>
+</html>
+    <?php
+}
+
 $filters = galleryFilters($_GET);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['scan-external', 'reconnect-external'], true)) {
+    $scope = $filters['folder'] ?? '';
+    try {
+        $report = null;
+        if ($_POST['action'] === 'scan-external') {
+            $report = scanExternalMediaMoves($libraryDirectory, $scope);
+        } else {
+            $record = filter_var($_POST['record'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($record === false || !is_string($_POST['source'] ?? null) || !is_string($_POST['destination'] ?? null)) {
+                throw new InvalidArgumentException('Choose a saved record and a destination file.');
+            }
+            reconnectExternalMedia($libraryDirectory, $scope, $record, $_POST['source'], $_POST['destination']);
+        }
+        renderExternalMoveReport($filters, $report, null);
+    } catch (DomainException | InvalidArgumentException $exception) {
+        http_response_code($exception instanceof DomainException ? 409 : 400);
+        renderExternalMoveReport($filters, null, $exception->getMessage());
+    }
+    return;
+}
 $legacyFilters = array_intersect_key($filters, array_flip(GALLERY_LEGACY_SEARCH_FIELDS));
 $batchRequest = isset($_GET['batch']);
 $suggestRequest = isset($_GET['suggest']);
@@ -269,6 +368,9 @@ if ($error === null && isset($filters['random']) && !isset($filters['seed'])) {
     ? loadMediaGallery($libraryDirectory, $filters, $terms)
     : [[], gatherMediaFolders($libraryDirectory), 1, 0, [], null];
 $searchText = $legacyFilters && $searchError === null ? formatGallerySearch($terms) : ($filters['query'] ?? '');
+$selectedFolder = $filters['folder'] ?? '';
+$selectedDirectory = $selectedFolder === '' ? null : resolveLibraryPath($libraryDirectory, $selectedFolder);
+$subfolders = $selectedDirectory !== null && is_dir($selectedDirectory) ? gatherMediaFolders($selectedDirectory) : [];
 [$favoritesOnly, $favoritesUrl] = galleryStatusShortcut($filters, $terms, 'favorite');
 [$markedOnly, $markedUrl] = galleryStatusShortcut($filters, $terms, 'marked');
 $resetOrder = ['random' => null, 'seed' => null, 'newest' => null, 'oldest' => null, 'page' => null];
@@ -299,6 +401,15 @@ $notice = match ($_GET['notice'] ?? '') {
                     <li><a class="dropdown-item" href="<?= escapeHtml(galleryUrl($filters, ['folder' => null, 'page' => null])) ?>">All folders</a></li>
                     <?php foreach ($folders as $folder) { ?>
                         <li><a class="dropdown-item" href="<?= escapeHtml(galleryUrl($filters, ['folder' => $folder, 'page' => null])) ?>"><?= escapeHtml($folder) ?></a></li>
+                    <?php } ?>
+                    <?php if ($selectedFolder !== '' && dirname($selectedFolder) !== '.') { ?>
+                        <li><a class="dropdown-item" href="<?= escapeHtml(galleryUrl($filters, ['folder' => dirname($selectedFolder), 'page' => null])) ?>">Parent folder</a></li>
+                    <?php } ?>
+                    <?php if ($subfolders) { ?>
+                        <li><hr class="dropdown-divider"></li>
+                        <?php foreach ($subfolders as $subfolder) { ?>
+                            <li><a class="dropdown-item" href="<?= escapeHtml(galleryUrl($filters, ['folder' => $selectedFolder . '/' . $subfolder, 'page' => null])) ?>"><?= escapeHtml($subfolder) ?></a></li>
+                        <?php } ?>
                     <?php } ?>
                 </ul>
             </div>
@@ -333,6 +444,10 @@ $notice = match ($_GET['notice'] ?? '') {
             </a>
         </div>
         <div class="container d-flex flex-wrap align-items-start gap-2 mt-2">
+            <form method="post" action="<?= escapeHtml(galleryUrl($filters, ['page' => null])) ?>">
+                <button class="btn btn-sm btn-outline-secondary" name="action" value="scan-external" type="submit" aria-describedby="scan-scope">Scan for moves</button>
+                <small class="text-body-secondary" id="scan-scope"><?= escapeHtml($filters['folder'] ?? 'All folders') ?> and subfolders</small>
+            </form>
             <?php if ($searchError === null) { ?>
                 <?php foreach ($terms as $index => $term) { ?>
                     <?php

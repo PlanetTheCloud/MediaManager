@@ -47,6 +47,7 @@ The `loader.php` is the main logic file where all the processing happens. At the
 │   ├── video-js.css
 │   └── video.min.js
 ├── build.php
+├── external-moves.php
 ├── index.php
 ├── loader.php
 ├── metadata.php
@@ -95,6 +96,12 @@ The first edit creates `mediamanager.sqlite` directly in the media library direc
 Open **Manage file** on a card. Choose an existing destination folder or leave it blank for the library root. Edit the filename while keeping its extension, then click **Move or rename**. The app carries tags, stars, favorites, and the deletion mark to the new path. Moves and renames use hard links for collision-safe file placement, so use a filesystem that supports them, such as NTFS, and keep both paths on the same volume. Use the gallery to preserve details when changing a path.
 
 **Mark for deletion** records a reversible flag in SQLite and leaves the media file in place. Use the **Marked for deletion** filter to review flagged files, and **Clear deletion mark** to keep one. Existing databases are upgraded automatically when you make an edit. The database also stores the pending move record used to recover if the app is interrupted.
+
+### Moves made in Explorer
+
+Select a folder and click **Scan for moves**. The scan checks that folder and its descendants. To find a move between sibling folders, select their common parent. **All folders** checks the configured library root.
+
+Run a scan before moving older annotated clips so MediaManager can record their file identities. An unambiguous same-volume match reconnects automatically. For unresolved records, enter the new path relative to the library and choose **Reconnect**. These actions update the library's SQLite catalog and leave the media files in place.
 
 ## Randomize Feature
 Choose **Sort → Randomize** to shuffle the gallery. The generated seed in the URL preserves the order for the same set of files.

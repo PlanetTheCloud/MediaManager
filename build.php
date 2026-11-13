@@ -40,6 +40,7 @@ try {
         inlineBundlePhp('metadata.php')
     );
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/search.php';", inlineBundlePhp('search.php'));
+    $loader = replaceBundleSource($loader, "require_once __DIR__ . '/external-moves.php';", inlineBundlePhp('external-moves.php'));
     $router = replaceBundleSource($router, "require_once __DIR__ . '/loader.php';", $loader);
     $router = replaceBundleSource($router, "    require __DIR__ . '/index.php';", inlineBundlePhp('index.php') . "\n<?php");
 

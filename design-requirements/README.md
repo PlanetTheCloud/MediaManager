@@ -23,7 +23,8 @@ The app controls its own storage and browser profile. Windows can also write to 
 - [ ] **Bulk editing.** Select multiple clips to add or remove tags, move them, or mark them for deletion. Make database edits transactional. Start with undo for bulk tagging and deletion marks.
 - [ ] **Advanced Booru-style search.** Add OR groups and duration and dimension comparisons.
 - [ ] **Saved views and collections.** Add saved searches, manual collections, an Untagged queue, and an Unrated favorites view. Consider a continuous clips feed for rediscovery.
-- [ ] **Moves outside the app.** Assign stable item IDs and use content hashes to reconnect unambiguous moves or renames. Surface uncertain matches for review. Retain catalog entries if a volume is unavailable or a scan is interrupted.
+- [x] **Moves outside the app.** [Recognize same-volume renames and moves](recognize-external-moves.md) within the selected folder and its descendants. Keep ambiguous matches for review.
+- [ ] **Hash-based move review.** Suggest same-size files with matching content hashes within the selected folder and its descendants.
 - [ ] **Tag management.** Rename and merge tags, add aliases and implications, and show inherited tags. Preview folder and filename tagging rules before applying them.
 - [ ] **Duplicate review.** Compare exact duplicates side by side and evaluate similar-media review once that workflow is useful.
 - [ ] **Optional thumbnails.** Offer an opt-in thumbnail cache under the media library directory if the grid needs it. Show its size and location and provide a clear-cache control.

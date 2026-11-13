@@ -74,10 +74,15 @@ The `MEDIA_TYPES` map in `loader.php` controls file discovery. Playback depends 
 Use one search box to combine filename terms, tags, and media properties. Separate terms with spaces to require all of them. Prefix a term with `-` to exclude it, and use double quotes around a phrase.
 
 - `demo -draft` searches relative paths.
+- `file:"train yard"` searches for a phrase in the relative path.
 - `subject:train -status:draft is:favorite rating:>=4 type:video` combines tags, favorite status, rating, and media type.
 - `tag:"night train"`, `is:untagged`, and `is:unrated` find exact tags or clips that still need editing.
+- `tag:type:video` searches for the literal tag `type:video`. Use `tag:` when a tag starts with a reserved field name.
+- `rating:4` finds clips with exactly four stars. `is:marked` finds clips marked for deletion, and `type:gif` finds GIFs.
 
-Click a tag on a card to add it to your search, or click a filter chip to remove it. Tag suggestions show counts in the current results. Use the arrow keys to highlight a suggestion, **Tab** or **Enter** to insert it, and **Esc** to dismiss the list. See the [search design](design-requirements/booru-style-search.md) for the full syntax.
+The reserved fields are `file`, `tag`, `type`, `is`, and `rating`. Other `namespace:value` terms match exact tags. Inside quotes, `\"` represents a double quote and `\\` represents a backslash.
+
+Click a tag on a card to add it to your search, or click a filter chip to remove it. Tag suggestions show counts in the current results. Use the arrow keys to highlight a suggestion, **Tab** or **Enter** to insert it, and **Esc** to dismiss the list.
 
 ## Browsing and playback
 

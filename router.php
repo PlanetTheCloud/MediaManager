@@ -104,6 +104,7 @@ $assets = [
     '/assets/video.min.js' => 'text/javascript',
     '/assets/gallery.css' => 'text/css',
     '/assets/gallery.js' => 'text/javascript',
+    '/assets/search.js' => 'text/javascript',
 ];
 if (isset($assets[$route])) {
     header('Content-Type: ' . $assets[$route]);

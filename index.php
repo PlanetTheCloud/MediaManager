@@ -16,7 +16,38 @@ function galleryUrl(array $filters, array $changes = []): string
     return $parameters ? '/?' . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986) : '/';
 }
 
-function renderGalleryCards(array $files, array $annotations, array $filters): void
+function gallerySearchUrl(array $filters, array $terms): string
+{
+    $changes = array_fill_keys(GALLERY_LEGACY_SEARCH_FIELDS, null);
+    $changes['page'] = null;
+    $changes['query'] = $terms ? formatGallerySearch($terms) : null;
+    return galleryUrl($filters, $changes);
+}
+
+function galleryTermsWithInclusion(array $terms, string $field, string $value): array
+{
+    $inclusion = ['field' => $field, 'value' => $value, 'negated' => false];
+    $exclusion = array_replace($inclusion, ['negated' => true]);
+    $keys = [gallerySearchTermKey($inclusion), gallerySearchTermKey($exclusion)];
+    $terms = array_filter($terms, static fn ($term) => !in_array(gallerySearchTermKey($term), $keys, true));
+    $terms[] = $inclusion;
+    return $terms;
+}
+
+function galleryTagUrl(array $filters, array $terms, string $tag): string
+{
+    return gallerySearchUrl($filters, galleryTermsWithInclusion($terms, 'tag', $tag));
+}
+
+function galleryStatusShortcut(array $filters, array $terms, string $status): array
+{
+    $withoutStatus = array_filter($terms, static fn ($term) => $term !== ['field' => 'is', 'value' => $status, 'negated' => false]);
+    $active = count($withoutStatus) !== count($terms);
+    $next = $active ? $withoutStatus : galleryTermsWithInclusion($terms, 'is', $status);
+    return [$active, gallerySearchUrl($filters, $next)];
+}
+
+function renderGalleryCards(array $files, array $annotations, array $filters, array $terms): void
 {
     $currentUrl = galleryUrl($filters);
     ?>
@@ -47,7 +78,7 @@ function renderGalleryCards(array $files, array $annotations, array $filters): v
                         <span class="badge text-bg-secondary" data-rating-badge role="img" aria-label="<?= $item['rating'] ?? 0 ?> out of 5 stars" <?= $item['rating'] === null ? 'hidden' : '' ?>><?= str_repeat('★', $item['rating'] ?? 0) ?></span>
                         <span class="d-inline-flex flex-wrap gap-1" data-tag-badges>
                             <?php foreach ($item['tags'] as $tag) { ?>
-                                <a class="badge text-bg-secondary text-decoration-none" href="<?= escapeHtml(galleryUrl($filters, ['tag' => $tag, 'page' => null])) ?>"><?= escapeHtml($tag) ?></a>
+                                <a class="badge text-bg-secondary text-decoration-none" href="<?= escapeHtml(galleryTagUrl($filters, $terms, $tag)) ?>"><?= escapeHtml($tag) ?></a>
                             <?php } ?>
                         </span>
                     </div>
@@ -158,12 +189,33 @@ function updateGalleryFile(string $directory, array $fields): string
 }
 
 $filters = galleryFilters($_GET);
+$legacyFilters = array_intersect_key($filters, array_flip(GALLERY_LEGACY_SEARCH_FIELDS));
 $batchRequest = isset($_GET['batch']);
+$suggestRequest = isset($_GET['suggest']);
 $viewerEdit = $_SERVER['REQUEST_METHOD'] === 'POST' && ($_SERVER['HTTP_ACCEPT'] ?? '') === 'application/json';
+$jsonRequest = $batchRequest || $suggestRequest || $viewerEdit;
+$searchError = null;
 try {
-    $error = recoverMediaRelocation($libraryDirectory);
-    if ($error !== null && ($batchRequest || $viewerEdit)) {
+    $terms = gallerySearchTerms($filters);
+} catch (InvalidArgumentException $exception) {
+    if ($jsonRequest) {
+        stopRequest(400, $exception->getMessage());
+    }
+    $searchError = $exception->getMessage();
+    $terms = gallerySearchTerms($legacyFilters);
+    http_response_code(400);
+}
+try {
+    $error = $searchError ?? recoverMediaRelocation($libraryDirectory);
+    if ($error !== null && $jsonRequest) {
         stopRequest(409, $error);
+    }
+    if ($suggestRequest) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' || $batchRequest || $_GET['suggest'] !== 'tags') {
+            throw new InvalidArgumentException('Invalid tag suggestion request.');
+        }
+        sendGalleryJson(['suggestions' => galleryTagSuggestions($libraryDirectory, $filters, $terms)]);
+        return;
     }
     if ($batchRequest) {
         if ($_SERVER['REQUEST_METHOD'] === 'POST' || !is_string($_GET['batch'])
@@ -171,18 +223,22 @@ try {
             throw new InvalidArgumentException('Invalid gallery batch request.');
         }
         try {
-            [$batch, $annotations, $page, $cursor] = loadMediaBatch($libraryDirectory, $filters, $_GET['batch']);
+            [$batch, $annotations, $page, $cursor] = loadMediaBatch($libraryDirectory, $filters, $_GET['batch'], $terms);
         } catch (DomainException $exception) {
             stopRequest(409, $exception->getMessage(), 'view-changed');
         }
         ob_start();
-        renderGalleryCards($batch, $annotations, array_replace($filters, ['page' => (string) $page]));
+        renderGalleryCards($batch, $annotations, array_replace($filters, ['page' => (string) $page]), $terms);
         sendGalleryJson(['html' => ob_get_clean(), 'cursor' => $cursor]);
         return;
     }
     if ($viewerEdit) {
         $item = saveViewerMetadata($libraryDirectory, $_POST);
-        sendGalleryJson(['item' => $item, 'matchesView' => galleryMatchesAnnotations($item, $filters)]);
+        sendGalleryJson([
+            'item' => $item,
+            'matchesView' => gallerySearchMatches($terms, $_POST['file'], $item),
+            'tagLinks' => array_map(static fn ($tag) => galleryTagUrl($filters, $terms, $tag), $item['tags']),
+        ]);
         return;
     }
     if ($error === null && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -198,7 +254,7 @@ try {
         return;
     }
 } catch (DomainException $exception) {
-    if ($batchRequest || $viewerEdit) {
+    if ($jsonRequest) {
         stopRequest(409, $exception->getMessage());
     }
     $error = $exception->getMessage();
@@ -209,7 +265,12 @@ if ($error === null && isset($filters['random']) && !isset($filters['seed'])) {
     return;
 }
 
-[$files, $folders, $page, $pageCount, $annotations, $tags, $cursor] = loadMediaGallery($libraryDirectory, $filters);
+[$files, $folders, $page, $pageCount, $annotations, $cursor] = $searchError === null
+    ? loadMediaGallery($libraryDirectory, $filters, $terms)
+    : [[], gatherMediaFolders($libraryDirectory), 1, 0, [], null];
+$searchText = $legacyFilters && $searchError === null ? formatGallerySearch($terms) : ($filters['query'] ?? '');
+[$favoritesOnly, $favoritesUrl] = galleryStatusShortcut($filters, $terms, 'favorite');
+[$markedOnly, $markedUrl] = galleryStatusShortcut($filters, $terms, 'marked');
 $resetOrder = ['random' => null, 'seed' => null, 'newest' => null, 'oldest' => null, 'page' => null];
 $notice = match ($_GET['notice'] ?? '') {
     'moved' => 'File moved or renamed.',
@@ -251,44 +312,55 @@ $notice = match ($_GET['notice'] ?? '') {
                 </ul>
             </div>
             <form class="d-flex flex-grow-1 flex-wrap gap-2" role="search" action="/" method="get">
-                <?php foreach (array_intersect_key($filters, array_flip(['folder', 'random', 'seed', 'newest', 'oldest', 'favorites', 'marked'])) as $key => $value) { ?>
+                <?php $searchScope = array_intersect_key($filters, array_flip(['folder', 'random', 'seed', 'newest', 'oldest'])); ?>
+                <?php foreach ($searchError === null ? $searchScope : $searchScope + $legacyFilters as $key => $value) { ?>
                     <input type="hidden" name="<?= escapeHtml($key) ?>" value="<?= escapeHtml($value) ?>">
                 <?php } ?>
-                <input class="form-control flex-fill w-auto" type="search" name="query" placeholder="Search filenames" aria-label="Search filenames" value="<?= escapeHtml($filters['query'] ?? '') ?>">
-                <input class="form-control w-auto" type="search" name="tag" list="library-tags" placeholder="Filter by tag" aria-label="Filter by tag" value="<?= escapeHtml($filters['tag'] ?? '') ?>">
-                <datalist id="library-tags">
-                    <?php foreach ($tags as $tag) { ?>
-                        <option value="<?= escapeHtml($tag) ?>"></option>
-                    <?php } ?>
-                </datalist>
-                <select class="form-select w-auto" name="rating" aria-label="Filter by rating">
-                    <option value="">Any rating</option>
-                    <?php for ($stars = 1; $stars <= 5; $stars++) { ?>
-                        <option value="<?= $stars ?>" <?= ($filters['rating'] ?? '') === (string) $stars ? 'selected' : '' ?>><?= $stars ?> <?= $stars === 1 ? 'star' : 'stars' ?></option>
-                    <?php } ?>
-                </select>
+                <div class="gallery-search flex-fill">
+                    <input class="form-control" id="gallery-query" type="search" name="query" placeholder="Search filenames, tags, and ratings" aria-label="Search media" autocomplete="off" value="<?= escapeHtml($searchText) ?>" <?= $searchError !== null ? 'aria-invalid="true" aria-describedby="search-error"' : '' ?>>
+                    <div class="search-suggestions" id="search-suggestions" hidden>
+                        <p class="small text-body-secondary mb-1 px-2" id="search-suggestion-status" role="status"></p>
+                        <ul id="search-tag-options" class="list-group list-group-flush mb-0" role="listbox" aria-label="Tags in current results"></ul>
+                    </div>
+                </div>
                 <button class="btn btn-outline-light" type="submit">Search</button>
             </form>
-            <?php $favoritesOnly = isset($filters['favorites']); ?>
-            <a class="btn btn-outline-warning <?= $favoritesOnly ? 'active' : '' ?>" <?= $favoritesOnly ? 'aria-current="true"' : '' ?> href="<?= escapeHtml(galleryUrl($filters, ['favorites' => $favoritesOnly ? null : '1', 'page' => null])) ?>">
-                <?= $favoritesOnly ? 'Show all media' : 'Favorites' ?>
+            <a class="btn btn-outline-warning <?= $favoritesOnly ? 'active' : '' ?>" <?= $favoritesOnly ? 'aria-current="true"' : '' ?> href="<?= escapeHtml($favoritesUrl) ?>">
+                <?= $favoritesOnly ? 'Clear favorites filter' : 'Favorites' ?>
             </a>
-            <?php $markedOnly = isset($filters['marked']); ?>
-            <a class="btn btn-outline-danger <?= $markedOnly ? 'active' : '' ?>" <?= $markedOnly ? 'aria-current="true"' : '' ?> href="<?= escapeHtml(galleryUrl($filters, ['marked' => $markedOnly ? null : '1', 'page' => null])) ?>">
-                <?= $markedOnly ? 'Show all statuses' : 'Marked for deletion' ?>
+            <a class="btn btn-outline-danger <?= $markedOnly ? 'active' : '' ?>" <?= $markedOnly ? 'aria-current="true"' : '' ?> href="<?= escapeHtml($markedUrl) ?>">
+                <?= $markedOnly ? 'Clear deletion filter' : 'Marked for deletion' ?>
             </a>
+        </div>
+        <div class="container d-flex flex-wrap align-items-start gap-2 mt-2">
+            <?php if ($searchError === null) { ?>
+                <?php foreach ($terms as $index => $term) { ?>
+                    <?php
+                    $label = formatGallerySearchTerm($term);
+                    $remaining = $terms;
+                    unset($remaining[$index]);
+                    ?>
+                    <a class="btn btn-sm btn-outline-secondary text-break" href="<?= escapeHtml(gallerySearchUrl($filters, $remaining)) ?>" aria-label="Remove <?= escapeHtml($label) ?>">
+                        <?= escapeHtml($label) ?> <span aria-hidden="true">×</span>
+                    </a>
+                <?php } ?>
+            <?php } ?>
+            <details class="small text-body-secondary">
+                <summary>Search syntax</summary>
+                <p class="mb-0">Combine terms with spaces. Use <code>-</code> to exclude and double quotes for phrases. Try <code>subject:train -status:draft is:favorite rating:&gt;=4 type:video</code> or <code>is:untagged</code>.</p>
+            </details>
         </div>
     </header>
     <main class="container pb-4">
         <h1 id="gallery-heading" class="visually-hidden" tabindex="-1">Media gallery</h1>
         <?php if ($error !== null) { ?>
-            <p class="alert alert-danger" role="alert"><?= escapeHtml($error) ?></p>
+            <p class="alert alert-danger" role="alert" <?= $searchError !== null ? 'id="search-error"' : '' ?>><?= escapeHtml($error) ?></p>
         <?php } elseif ($notice !== null) { ?>
             <p class="alert alert-success" role="status"><?= escapeHtml($notice) ?></p>
         <?php } ?>
-        <?php if (!$files) { ?>
+        <?php if (!$files && $searchError === null) { ?>
             <p class="text-body-secondary">No media matches this view.</p>
-        <?php } else { ?>
+        <?php } elseif ($files) { ?>
             <datalist id="move-folders">
                 <?php foreach (gatherMediaFolders($libraryDirectory, true) as $folder) { ?>
                     <option value="<?= escapeHtml($folder) ?>"></option>
@@ -296,7 +368,7 @@ $notice = match ($_GET['notice'] ?? '') {
             </datalist>
         <?php } ?>
         <div class="row g-3" id="gallery-grid" data-view-url="<?= escapeHtml(galleryUrl($filters)) ?>" data-cursor="<?= escapeHtml($cursor ?? '') ?>">
-            <?php renderGalleryCards($files, $annotations, $filters); ?>
+            <?php renderGalleryCards($files, $annotations, $filters, $terms); ?>
         </div>
         <?php if ($pageCount > 1) { ?>
             <nav class="mt-3" id="gallery-pages" aria-label="Media pages">
@@ -363,5 +435,6 @@ $notice = match ($_GET['notice'] ?? '') {
     </dialog>
     <script src="/assets/bootstrap.bundle.min.js"></script>
     <script src="/assets/gallery.js" defer></script>
+    <script src="/assets/search.js" defer></script>
 </body>
 </html>

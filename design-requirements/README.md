@@ -13,15 +13,15 @@ MediaManager is a single-user, offline gallery for videos and GIFs already organ
 
 The app controls its own storage and browser profile. Windows can also write to the system drive through paging, hibernation, or crash dumps. OS-level traces require separate controls.
 
-## Next milestone
+## Feature designs
 
-[Infinite grid and fullscreen viewer](infinite-grid-and-viewer.md) covers scrolling, playback, keyboard shortcuts, and single-item editing.
+[Booru-style search](booru-style-search.md) covers the query language, clickable filters, tag suggestions, and integration with the [infinite grid and fullscreen viewer](infinite-grid-and-viewer.md).
 
 ## TODO after the grid and viewer
 
 - [ ] **Open & lock.** Launch a dedicated browser profile on the encrypted volume and implement the lock sequence above.
 - [ ] **Bulk editing.** Select multiple clips to add or remove tags, move them, or mark them for deletion. Make database edits transactional. Start with undo for bulk tagging and deletion marks.
-- [ ] **Booru-style search.** Add tag autocomplete with counts, AND and exclusion filters, OR groups, and media type, duration, and dimension filters. Support queries such as `subject:train -status:draft is:favorite type:video` through text and clickable filters. Preserve filename searches such as `demo -draft`.
+- [ ] **Advanced Booru-style search.** Add OR groups and duration and dimension comparisons.
 - [ ] **Saved views and collections.** Add saved searches, manual collections, an Untagged queue, and an Unrated favorites view. Consider a continuous clips feed for rediscovery.
 - [ ] **Moves outside the app.** Assign stable item IDs and use content hashes to reconnect unambiguous moves or renames. Surface uncertain matches for review. Retain catalog entries if a volume is unavailable or a scan is interrupted.
 - [ ] **Tag management.** Rename and merge tags, add aliases and implications, and show inherited tags. Preview folder and filename tagging rules before applying them.

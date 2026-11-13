@@ -203,16 +203,6 @@ function readMediaMetadata(PDO $database, array $mediaPaths): array
     return $metadata;
 }
 
-function listMediaTags(string $libraryDirectory): array
-{
-    $database = openMediaMetadataDatabase($libraryDirectory);
-    if ($database === null || getMediaMetadataSchemaVersion($database) === 0) {
-        return [];
-    }
-
-    return $database->query('SELECT name FROM tags ORDER BY name COLLATE NOCASE')->fetchAll(PDO::FETCH_COLUMN);
-}
-
 function writeMediaMetadata(string $libraryDirectory, callable $write): mixed
 {
     $database = openMediaMetadataDatabase($libraryDirectory, true);

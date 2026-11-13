@@ -65,6 +65,7 @@
         observer?.disconnect();
         showMore('Results have changed.');
         updateNavigation();
+        document.dispatchEvent(new Event('gallery:results-changed'));
     }
 
     function releaseMedia() {
@@ -96,6 +97,11 @@
         if (response.headers.get('X-MediaManager-Error') !== 'library-unavailable') {
             return false;
         }
+        document.dispatchEvent(new Event('gallery:library-unavailable'));
+        return true;
+    }
+
+    function clearUnavailableGallery() {
         if (!inactive) {
             stopBrowsing();
             const panel = document.createElement('main');
@@ -114,7 +120,6 @@
             document.body.replaceChildren(panel);
             heading.focus();
         }
-        return true;
     }
 
     function loadNextBatch() {
@@ -190,16 +195,13 @@
         next.disabled = waitingForNext || (!selected.nextElementSibling && (!cursor || stale));
     }
 
-    function renderTags(container, values, links = false) {
-        const badges = values.map(tag => {
+    function renderTags(container, values, links = null) {
+        const badges = values.map((tag, index) => {
             const badge = document.createElement(links ? 'a' : 'span');
             badge.className = 'badge text-bg-secondary text-decoration-none';
             badge.textContent = tag;
             if (links) {
-                const url = new URL(viewUrl);
-                url.searchParams.set('tag', tag);
-                url.searchParams.delete('page');
-                badge.href = url.href;
+                badge.href = links[index];
             }
             return badge;
         });
@@ -298,7 +300,7 @@
         }
     }
 
-    function updateCardDetails(card, item) {
+    function updateCardDetails(card, item, tagLinks) {
         const fields = card.querySelector('[data-card-details]').elements;
         fields.favorite.checked = item.favorite;
         fields.rating.value = item.rating ?? '';
@@ -308,7 +310,7 @@
         stars.hidden = item.rating === null;
         stars.textContent = '★'.repeat(item.rating ?? 0);
         stars.setAttribute('aria-label', `${item.rating ?? 0} out of 5 stars`);
-        renderTags(card.querySelector('[data-tag-badges]'), item.tags, true);
+        renderTags(card.querySelector('[data-tag-badges]'), item.tags, tagLinks);
     }
 
     async function saveViewerChange(action, value) {
@@ -341,9 +343,11 @@
             if (!response.ok) {
                 throw new Error(result.message || 'Could not save the change.');
             }
-            updateCardDetails(card, result.item);
+            updateCardDetails(card, result.item, result.tagLinks);
             if (!result.matchesView) {
                 markViewStale();
+            } else {
+                document.dispatchEvent(new Event('gallery:results-changed'));
             }
             if (selected === card) {
                 if (action === 'tags' && !tagEditor.hidden) {
@@ -505,6 +509,7 @@
         event.preventDefault();
     });
 
+    document.addEventListener('gallery:library-unavailable', clearUnavailableGallery);
     window.addEventListener('pagehide', stopBrowsing);
     window.addEventListener('pageshow', event => {
         if (event.persisted) {

@@ -43,13 +43,15 @@ The `loader.php` is the main logic file where all the processing happens. At the
 │   ├── bootstrap.min.css
 │   ├── gallery.css
 │   ├── gallery.js
+│   ├── search.js
 │   ├── video-js.css
 │   └── video.min.js
 ├── build.php
 ├── index.php
 ├── loader.php
 ├── metadata.php
-└── router.php
+├── router.php
+└── search.php
 ```
 
 ## Dependencies
@@ -68,7 +70,13 @@ The `MEDIA_TYPES` map in `loader.php` controls file discovery. Playback depends 
 
 ## Search Feature
 
-Search filenames and paths recursively using space-separated terms. Prefix a term with `-` to exclude matches. You can combine that search with a tag, a star rating, and the Favorites view.
+Use one search box to combine filename terms, tags, and media properties. Separate terms with spaces to require all of them. Prefix a term with `-` to exclude it, and use double quotes around a phrase.
+
+- `demo -draft` searches relative paths.
+- `subject:train -status:draft is:favorite rating:>=4 type:video` combines tags, favorite status, rating, and media type.
+- `tag:"night train"`, `is:untagged`, and `is:unrated` find exact tags or clips that still need editing.
+
+Click a tag on a card to add it to your search, or click a filter chip to remove it. Tag suggestions show counts in the current results. Use the arrow keys to highlight a suggestion, **Tab** or **Enter** to insert it, and **Esc** to dismiss the list. See the [search design](design-requirements/booru-style-search.md) for the full syntax.
 
 ## Browsing and playback
 

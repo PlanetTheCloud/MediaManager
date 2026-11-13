@@ -39,6 +39,7 @@ try {
         "require_once __DIR__ . '/metadata.php';",
         inlineBundlePhp('metadata.php')
     );
+    $loader = replaceBundleSource($loader, "require_once __DIR__ . '/search.php';", inlineBundlePhp('search.php'));
     $router = replaceBundleSource($router, "require_once __DIR__ . '/loader.php';", $loader);
     $router = replaceBundleSource($router, "    require __DIR__ . '/index.php';", inlineBundlePhp('index.php') . "\n<?php");
 
@@ -82,7 +83,7 @@ try {
     );
 
     $assetResponse = "echo match (\$route) {\n";
-    foreach (['bootstrap.min.css', 'video-js.css', 'bootstrap.bundle.min.js', 'video.min.js', 'gallery.css', 'gallery.js'] as $asset) {
+    foreach (['bootstrap.min.css', 'video-js.css', 'bootstrap.bundle.min.js', 'video.min.js', 'gallery.css', 'gallery.js', 'search.js'] as $asset) {
         $path = 'assets/' . $asset;
         $assetResponse .= '            ' . var_export('/' . $path, true) . ' => '
             . var_export(readBundleFile($path), true) . ",\n";

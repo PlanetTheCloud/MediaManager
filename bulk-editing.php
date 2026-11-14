@@ -252,20 +252,7 @@ function applyBulkEdit(string $directory, string $scope, array $request, string 
             if ($receipt !== null) {
                 return $receipt + ['repeated' => true];
             }
-            $rows = array_values(array_filter($preview['rows'], static fn ($row) => $row['status'] === 'changed'));
-            $result = ['operation' => $request['operation'], 'counts' => $preview['counts'],
-                'paths' => array_column($rows, 'path')];
-            if ($request['operation'] === 'move' && $rows) {
-                $result['batch'] = $token;
-            } elseif ($rows) {
-                applyBulkMetadata($database, $directory, $request['operation'], $rows, $token);
-            }
-            $database->prepare('INSERT INTO bulk_receipts (token, result) VALUES (?, ?)')
-                ->execute([$token, json_encode($result, JSON_THROW_ON_ERROR)]);
-            if (isset($result['batch'])) {
-                saveBulkMoveItems($database, $token, $rows, $preview['folders']);
-            }
-            return $result;
+            return commitBulkEdit($database, $directory, $request['operation'], $preview, $token);
         },
         static function (PDO $database) use ($directory, $scope, $request, $token, $parts, &$preview, &$receipt): void {
             $receipt = bulkReceipt($database, $token);
@@ -282,6 +269,23 @@ function applyBulkEdit(string $directory, string $scope, array $request, string 
             }
         }
     );
+}
+
+function commitBulkEdit(PDO $database, string $directory, string $operation, array $preview, string $token): array
+{
+    $rows = array_values(array_filter($preview['rows'], static fn ($row) => $row['status'] === 'changed'));
+    $result = ['operation' => $operation, 'counts' => $preview['counts'], 'paths' => array_column($rows, 'path')];
+    if ($operation === 'move' && $rows) {
+        $result['batch'] = $token;
+    } elseif ($rows) {
+        applyBulkMetadata($database, $directory, $operation, $rows, $token);
+    }
+    $database->prepare('INSERT INTO bulk_receipts (token, result) VALUES (?, ?)')
+        ->execute([$token, json_encode($result, JSON_THROW_ON_ERROR)]);
+    if (isset($result['batch'])) {
+        saveBulkMoveItems($database, $token, $rows, $preview['folders']);
+    }
+    return $result;
 }
 
 function clearBulkUndo(PDO $database): array

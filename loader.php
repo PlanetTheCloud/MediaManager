@@ -7,6 +7,7 @@ require_once __DIR__ . '/tags.php';
 require_once __DIR__ . '/tag-rules.php';
 require_once __DIR__ . '/bulk-editing.php';
 require_once __DIR__ . '/bulk-moves.php';
+require_once __DIR__ . '/duplicate-review.php';
 
 const ITEMS_PER_PAGE = 15;
 const MEDIA_TYPES = [
@@ -150,7 +151,11 @@ function mediaMoveDestination(string $directory, string $relative): string
 
 function mediaFileIdentity(?string $path): ?array
 {
-    $stat = $path === null ? false : @stat($path);
+    return mediaIdentityFromStat($path === null ? false : @stat($path));
+}
+
+function mediaIdentityFromStat(array|false $stat): ?array
+{
     if ($stat === false || ($stat['mode'] & 0170000) !== 0100000) {
         return null;
     }
@@ -312,6 +317,12 @@ function moveLibraryMediaFile(string $directory, string $file, string $folder, s
         throw new DomainException($error ?? 'The destination could not be confirmed. Reload the gallery.');
     }
     return $destination;
+}
+
+function galleryUrl(array $filters, array $changes = [], string $route = '/'): string
+{
+    $parameters = array_filter(array_replace($filters, $changes), static fn ($value) => $value !== null);
+    return $route . ($parameters ? '?' . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986) : '');
 }
 
 function galleryFilters(array $input): array

@@ -108,7 +108,7 @@ function scopedMediaRecords(PDO $database, string $scope): array
 }
 
 /** Check a path from the scan root outward, without following redirected directories. */
-function checkScopedMediaPath(string $directory, string $scope, string $root, string $path): array
+function checkScopedMediaPath(string $directory, string $scope, string $root, string $path, bool $locateMissing = true): array
 {
     if (!inMediaScanScope($scope, $path) || $path === $scope) {
         throw new DomainException('Choose a file inside the selected folder.');
@@ -133,7 +133,7 @@ function checkScopedMediaPath(string $directory, string $scope, string $root, st
         }
         $resolved = realpath($current);
         if ($resolved === false) {
-            return missingScopedMediaPath($parent, $part);
+            return $locateMissing ? missingScopedMediaPath($parent, $part) : ['state' => 'unverified'];
         }
         if ($resolved !== $current && PHP_OS_FAMILY === 'Windows' && strcasecmp($resolved, $current) === 0
             && is_dir($resolved) && is_readable($resolved)) {
@@ -149,7 +149,7 @@ function checkScopedMediaPath(string $directory, string $scope, string $root, st
     }
     $resolved = realpath($current);
     if ($resolved === false) {
-        return missingScopedMediaPath($parent, $last);
+        return $locateMissing ? missingScopedMediaPath($parent, $last) : ['state' => 'unverified'];
     }
     if ($resolved !== $current) {
         // Windows can resolve the old spelling of a case-only rename to the new path.
@@ -161,7 +161,7 @@ function checkScopedMediaPath(string $directory, string $scope, string $root, st
     if (relativeMediaPath($directory, $current) !== $path) {
         return ['state' => 'renamed-case', 'path' => relativeMediaPath($directory, $current)];
     }
-    return ['state' => 'present', 'identity' => mediaFileIdentity($current)];
+    return ['state' => 'present', 'file' => $current, 'identity' => mediaFileIdentity($current)];
 }
 
 function missingScopedMediaPath(string $parent, string $name): array

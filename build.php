@@ -45,8 +45,10 @@ try {
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/tag-rules.php';", inlineBundlePhp('tag-rules.php'));
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/bulk-editing.php';", inlineBundlePhp('bulk-editing.php'));
     $loader = replaceBundleSource($loader, "require_once __DIR__ . '/bulk-moves.php';", inlineBundlePhp('bulk-moves.php'));
+    $loader = replaceBundleSource($loader, "require_once __DIR__ . '/duplicate-review.php';", inlineBundlePhp('duplicate-review.php'));
     $router = replaceBundleSource($router, "require_once __DIR__ . '/loader.php';", $loader);
     $router = replaceBundleSource($router, "require_once __DIR__ . '/manage-tags.php';", inlineBundlePhp('manage-tags.php'));
+    $router = replaceBundleSource($router, "require_once __DIR__ . '/review-duplicates.php';", inlineBundlePhp('review-duplicates.php'));
     $router = replaceBundleSource($router, "    require __DIR__ . '/index.php';", inlineBundlePhp('index.php') . "\n<?php");
 
     $documentRootCheck = <<<'PHP'
@@ -89,7 +91,7 @@ try {
     );
 
     $assetResponse = "echo match (\$route) {\n";
-    foreach (['bootstrap.min.css', 'video-js.css', 'bootstrap.bundle.min.js', 'video.min.js', 'gallery.css', 'gallery.js', 'search.js'] as $asset) {
+    foreach (['bootstrap.min.css', 'video-js.css', 'bootstrap.bundle.min.js', 'video.min.js', 'gallery.css', 'gallery.js', 'search.js', 'duplicate-review.js'] as $asset) {
         $path = 'assets/' . $asset;
         $assetResponse .= '            ' . var_export('/' . $path, true) . ' => '
             . var_export(readBundleFile($path), true) . ",\n";

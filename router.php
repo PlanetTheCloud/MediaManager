@@ -92,7 +92,7 @@ if (!preg_match('/^(127\.0\.0\.1|localhost)(:[0-9]+)?$/Di', $host)) {
 $route = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'POST') {
-    if (!in_array($route, ['/', '/index.php', '/tags'], true)) {
+    if (!in_array($route, ['/', '/index.php', '/tags', '/duplicates'], true)) {
         stopRequest(405, 'Method not allowed.');
     }
     if (($_SERVER['HTTP_ORIGIN'] ?? '') !== 'http://' . $host) {
@@ -110,6 +110,7 @@ $assets = [
     '/assets/gallery.css' => 'text/css',
     '/assets/gallery.js' => 'text/javascript',
     '/assets/search.js' => 'text/javascript',
+    '/assets/duplicate-review.js' => 'text/javascript',
 ];
 if (isset($assets[$route])) {
     header('Content-Type: ' . $assets[$route]);
@@ -119,16 +120,21 @@ if (isset($assets[$route])) {
     return;
 }
 
-if (!in_array($route, ['/', '/index.php', '/media', '/tags'], true)) {
+if (!in_array($route, ['/', '/index.php', '/media', '/tags', '/duplicates'], true)) {
     stopRequest(404, 'Page not found.');
 }
 
 require_once __DIR__ . '/loader.php';
 require_once __DIR__ . '/manage-tags.php';
+require_once __DIR__ . '/review-duplicates.php';
 try {
     $libraryDirectory = getMediaLibraryDirectory();
     if ($route === '/tags') {
         handleTagManager($libraryDirectory);
+        return;
+    }
+    if ($route === '/duplicates') {
+        handleDuplicateReview($libraryDirectory, $method);
         return;
     }
     if ($route === '/media') {

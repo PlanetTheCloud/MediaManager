@@ -5,12 +5,6 @@ if (!isset($libraryDirectory)) {
     exit('Start MediaManager with the command in the README.');
 }
 
-function galleryUrl(array $filters, array $changes = []): string
-{
-    $parameters = array_filter(array_replace($filters, $changes), static fn ($value) => $value !== null);
-    return $parameters ? '/?' . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986) : '/';
-}
-
 function gallerySearchUrl(array $filters, array $terms): string
 {
     $changes = array_fill_keys(GALLERY_LEGACY_SEARCH_FIELDS, null);
@@ -523,6 +517,7 @@ unset($bulkDatabase);
         </div>
         <div class="container d-flex flex-wrap align-items-start gap-2 mt-2">
             <a class="btn btn-sm btn-outline-secondary" href="<?= escapeHtml(tagManagerUrl(['folder' => $selectedFolder])) ?>">Manage tags</a>
+            <a class="btn btn-sm btn-outline-secondary" href="<?= escapeHtml(galleryUrl($filters, [], '/duplicates')) ?>">Find duplicates</a>
             <form method="post" action="<?= escapeHtml(galleryUrl($filters, ['page' => null])) ?>">
                 <button class="btn btn-sm btn-outline-secondary" name="action" value="scan-external" type="submit" aria-describedby="scan-scope">Scan for moves</button>
                 <small class="text-body-secondary" id="scan-scope"><?= escapeHtml($filters['folder'] ?? 'All folders') ?> and subfolders</small>

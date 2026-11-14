@@ -41,6 +41,7 @@ The `loader.php` is the main logic file where all the processing happens. At the
 ├── assets/
 │   ├── bootstrap.bundle.min.js
 │   ├── bootstrap.min.css
+│   ├── duplicate-review.js
 │   ├── gallery.css
 │   ├── gallery.js
 │   ├── search.js
@@ -49,11 +50,13 @@ The `loader.php` is the main logic file where all the processing happens. At the
 ├── build.php
 ├── bulk-editing.php
 ├── bulk-moves.php
+├── duplicate-review.php
 ├── external-moves.php
 ├── index.php
 ├── loader.php
 ├── manage-tags.php
 ├── metadata.php
+├── review-duplicates.php
 ├── router.php
 ├── search.php
 ├── tag-rules.php
@@ -100,6 +103,12 @@ Open a tile to view it and use **Fullscreen** to expand the viewer. Use the arro
 Choose **Select**, then check individual clips or use **Select loaded results**. You can keep selecting as you scroll. Choose an action and use **Preview** to review the files before applying it.
 
 **Undo last bulk edit** reverses the latest batch of tag or deletion-mark changes, skipping assignments or marks that were edited afterward. For moves, the preview lists blocked files and leaves them selected. If a move stops partway through, use **Resume move batch** to continue from the last completed file.
+
+## Duplicate review
+
+Open **Find duplicates** and scan the selected gallery folder and its subfolders. The scan includes the whole selected folder even when a search narrows the gallery. Select **All folders** to scan the library, or choose a common parent to compare clips in sibling folders. The scan compares file bytes and counts hard links to the same file as one copy.
+
+Choose two paths to compare, select an unmarked keeper, then check each copy you want to mark for deletion. **Undo** reverses the latest batch of marks. All files remain in place with their own tags, ratings, and favorites.
 
 ## Favorites, ratings, and tags
 
